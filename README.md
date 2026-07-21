@@ -2,7 +2,7 @@
 Code repository for the bioinformatic analysis of Bottini et al 2026
 
 # Download the supporting "scratch folders" from the Zenodo repository:
-Use wget or download directly on [Zenodo]().
+Use wget or download directly on [Zenodo](https://doi.org/10.5281/zenodo.21471692).
 Place the code in a folder together with the "scratch folder" and rename it "scratch"; then you can repeat the analysis within our Docker.
 
 # Download the Docker image to allow reproducibility
