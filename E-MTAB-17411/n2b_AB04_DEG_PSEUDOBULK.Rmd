@@ -1,0 +1,1744 @@
+---
+title: "n2b AB04: DEG pseudobulk analysis on clusters and conditions"
+author: "Elisa Balmas PhD"
+date: "2025-08-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up environment
+
+```{r}
+library(EnhancedVolcano)
+library(monocle3)
+library(tidyr)
+library(stringr)
+library(grid)
+library(viridis)
+library(viridisLite)
+library(ggthemes)
+library(dplyr)
+library(tidyverse)
+library(ggsignif)
+library(umap)
+library(heatmap3)
+library(plyr)
+library(edgeR)
+library(compareGroups)
+library(dbscan)
+library(MAST)
+library(geosphere)
+library(RColorBrewer)
+library(Seurat)
+library(htmlwidgets)
+library(Matrix)
+library(tidyseurat)
+library(SeuratWrappers)
+library(scMAGeCK)
+library(readxl)
+library(rCASC)
+library(deepToolsUtils)
+library(R.utils)
+library(plotly)
+
+
+library(ggplot2); library(reshape2); theme_set(theme_bw(26) + theme(panel.grid.major = element_blank(), 
+                                                                    panel.grid.minor = element_blank()) +
+                                                 theme(legend.key = element_blank()))
+update_geom_defaults("point", aes(size = 4))
+
+#setwd("/home/ebalmas/scpHUB/projects/H001AS7_iKDseq_10X_4tp_monocle/analysis_EB")
+
+# Session options
+options(stringsAsFactors = FALSE)
+set.seed(12345)
+
+# Set up the ggplot default params
+theme_set(theme_bw(12) + 
+          theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(),
+                plot.title = element_text(size=15, face="bold", margin = margin(10,0,10,0)),
+                axis.text.x = element_text(angle=45, hjust = 1)))
+
+
+# Set up filename prefixes and output folders with the data
+
+dir.create(file.path("Output","DEG_pseudobulk"))#create forders MONOCLE
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d")))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "R_objects"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "dotplots"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "dotplots","single"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "stat"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "csv"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "UMAP"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "mosaic"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "heatmap"))
+dir.create(file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "GO"))
+
+
+#set up forder path MONOCLE
+fname_prefix_R <- file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "R_objects", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot <- file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "dotplots", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot_single <- file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "dotplots", "single", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_csv<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "csv", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_stat<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "stat", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_UMAP<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "UMAP", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_mosaic<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "mosaic", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_heatmap<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "heatmap", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_GO<-file.path("Output","DEG_pseudobulk", format(Sys.Date(), "%y%m%d"), "GO", 
+                               format(Sys.Date(), "%y%m%d"))
+
+fname_prefix_scratch="scratch/"
+
+
+okabe_pal=c("#E69F00","#56B4E9","#009E73","#f0E442","#0072B2","#D55E00","#CC79A7","#000000")
+
+
+pal <- c("#000000","#004949","#009292","#ff6db6","#ffb6db",
+         "#490092","#006ddb","#b66dff","#6db6ff","#b6dbff",
+         "#920000","#924900","#db6d00","#24ff24","#ffff6d")
+
+library(pals)
+cols_all <- pals::alphabet(20)#extended colorblind friendly palette
+# amethyst      blue   caramel    damson     ebony    forest     green  honeydew      iron      jade     khaki      lime   magenta      navy    orange      pink 
+#"#F0A0FF" "#0075DC" "#993F00" "#4C005C" "#191919" "#005C31" "#2BCE48" "#FFCC99" "#808080" "#94FFB5" "#8F7C00" "#9DCC00" "#C20088" "#003380" "#FFA405" "#FFA8BB" 
+# quagmire       red       sky turquoise 
+#"#426600" "#FF0010" "#5EF1F2" "#00998F"
+```
+
+########load data
+
+```{r}
+
+load(paste0(getwd(),"/scratch/monocle_seurat_cds_lable_prediction_annotations.RData")) #it was 251124_monocle_seurat_cds_clustered_FINAL.RData
+
+#cl_pal=c("#000000","#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+
+cl_pal=c("#000000","#E69F00", "#009E73", "#CC79A7", "#D55E00", "#f0E442")
+
+cluster_tab=data.frame(monocle_cluster=c("1","2","3","4","5","6"),
+                       cluster_color=cl_pal)
+
+cluster_tab$cluster_name=c("Undifferentiated","Neurectoderm","NANOGhi-TGFbhi","NANOGhi-TGFblo","ZIC1+","DPPA5+")
+cluster_tab$cluster_name_short=c("Undiff","Neuro","TGFbhi","TGFblo","ZIC1+","DPPA5+")
+
+
+#palettes for clusters on other datasets
+# 5-cluster palette (colors NOT in cl_pal6) ####from iPS2seq
+cl_pal5 <- c("#94FFB5", "#56B4E9", "#999999", "#332288", "#117733")
+
+# 4-cluster palette (again distinct from both cl_pal6 and cl_pal5) ####from B8 dataset
+cl_pal4 <- c("#88CCEE", "#CC6677", "#DDCC77", "#44AA99")
+```
+
+
+#Pseudobulk DE aggregation by sample (for instance cl6_WT_P2_E8_n1) and cluster (so it becomes cl6_WT_P2_E8_n1_1 ecc...)
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(DESeq2)
+
+seurat <- seurat_AB04
+Idents(seurat) <- "monocle_clusters"
+## COSTRUISCI meta_to_use DAL META.DATA DI SEURAT
+meta_to_use <- seurat@meta.data %>%
+  dplyr::select(
+    sample_id,
+    monocle_clusters,
+    samp,
+    media,
+    type,
+  )
+
+## Crea pb_group USANDO meta_to_use (non meta!)
+meta_to_use$pb_group <- interaction(
+  meta_to_use$sample_id,
+  meta_to_use$monocle_clusters,
+  sep  = "__",
+  drop = TRUE
+)
+
+## Scrivi pb_group dentro Seurat (stesso ordine delle celle)
+seurat$pb_group <- meta_to_use$pb_group
+## COSTRUISCI pb_meta come nel tuo schema (usa esattamente gli stessi campi)
+pb_meta <- meta_to_use %>%
+  dplyr::group_by(pb_group) %>%
+  dplyr::summarise(
+    sample_id        = dplyr::first(sample_id),
+    monocle_clusters = dplyr::first(monocle_clusters),
+    samp             = dplyr::first(samp),
+    media            = dplyr::first(media),
+    type             = dplyr::first(type),
+    n_cells          = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  column_to_rownames("pb_group")
+
+
+###aggregate counts per sample×cluster
+agg <- AggregateExpression(
+  seurat,
+  assays  = "originalexp",  # o l'assay giusto
+  slot    = "counts",
+  group.by = "pb_group",
+  fun     = "sum"
+)
+
+pb_counts <- as.matrix(agg$originalexp)
+
+## 1) Porta i rownames di pb_meta nello stesso formato di pb_counts
+rownames(pb_meta) <- gsub("_", "-", rownames(pb_meta))
+# questo converte: cl6_WT_P2_E8_n3__7  ->  cl6-WT-P2-E8-n3--7
+
+## 2) Diagnostica e allineamento robusto
+pb_groups_counts <- colnames(pb_counts)
+pb_groups_meta   <- rownames(pb_meta)
+
+missing_in_meta   <- setdiff(pb_groups_counts, pb_groups_meta)
+missing_in_counts <- setdiff(pb_groups_meta, pb_groups_counts)
+
+cat("N gruppi in pb_counts: ", length(pb_groups_counts), "\n")
+cat("N gruppi in pb_meta:   ", length(pb_groups_meta), "\n")
+cat("Solo in counts: ", length(missing_in_meta), "\n")
+cat("Solo in meta:   ", length(missing_in_counts), "\n")
+
+# Usa solo i gruppi comuni (per sicurezza)
+common_groups <- intersect(pb_groups_counts, pb_groups_meta)
+
+if (length(common_groups) < 2) {
+  stop("Troppi pochi gruppi comuni tra pb_counts e pb_meta per fare DESeq2.")
+}
+
+pb_counts <- pb_counts[, common_groups, drop = FALSE]
+pb_meta   <- pb_meta[common_groups, , drop = FALSE]
+
+# Ordine identico
+pb_meta <- pb_meta[colnames(pb_counts), , drop = FALSE]
+stopifnot(identical(colnames(pb_counts), rownames(pb_meta)))
+
+## 2) PREPARA DESeq2 #all samples and clusters
+pb_meta$monocle_clusters <- factor(pb_meta$monocle_clusters)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = round(pb_counts),
+  colData   = pb_meta,
+  design    = ~ monocle_clusters   # qui usi solo il cluster come effetto
+)
+
+pb_metaWT=subset(pb_meta,pb_meta$type=="WT")
+dds_WT <- DESeqDataSetFromMatrix(
+  countData = round(pb_counts[,rownames(pb_metaWT)]),
+  colData   = pb_metaWT,
+  design    = ~ monocle_clusters   # qui usi solo il cluster come effetto
+)
+
+pb_metaNO=subset(pb_meta,pb_meta$type=="NANOG_OVER")
+dds_NO <- DESeqDataSetFromMatrix(
+  countData = round(pb_counts[,rownames(pb_metaNO)]),
+  colData   = pb_metaNO,
+  design    = ~ monocle_clusters   # qui usi solo il cluster come effetto
+)
+
+# Filtra geni poco espressi
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+dds_WT <- dds_WT[rowSums(counts(dds_WT)) >= 10, ]
+dds_NO <- dds_NO[rowSums(counts(dds_NO)) >= 10, ]
+
+# Run DESeq
+dds <- DESeq(dds)
+dds_WT <- DESeq(dds_WT)
+dds_NO <- DESeq(dds_NO)
+
+## 3) PCA con VST
+vsd <- vst(dds, blind = TRUE)
+vsd_WT <- vst_WT(dds_WT, blind = TRUE)
+vsd_NO <- vst_NO(dds_NO, blind = TRUE)
+
+pcaData <- plotPCA(
+  vsd,
+  intgroup   = c("monocle_clusters", "media", "type"),
+  returnData = TRUE
+)
+
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+ggplot(pcaData, aes(PC1, PC2,
+                             color = monocle_clusters,
+                             shape = type)) + ###need to add treatment maybe
+  geom_point(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "% var")) +
+  ylab(paste0("PC2: ", percentVar[2], "% var")) +
+  theme_bw()
+
+ggsave("PCA_pseudobulk_monocle_clusters_all.pdf", p_pca, width = 6, height = 5)
+```
+
+###compare WT which has only 1 and 2 clusters
+
+```{r}
+## 4) COMPARAZIONI DE: cluster vs cluster (tutti i pairwise)
+#cluster_levels <- levels(pb_metaWT$monocle_clusters)
+cluster_levels <- c("1","2")
+
+pairwise_list <- list()
+k <- 1
+for (i in seq_along(cluster_levels)) {
+  for (j in seq_along(cluster_levels)) {
+    if (i >= j) next   # evita duplicati e self-comparison
+
+    ci <- cluster_levels[i]
+    cj <- cluster_levels[j]
+
+    res_ij <- results(dds_WT, contrast = c("monocle_clusters", ci, cj))
+    res_df <- as.data.frame(res_ij)
+    res_df$gene       <- rownames(res_df)
+    res_df$comparison <- paste0(ci, "_vs_", cj)
+    res_df$cluster_A  <- ci
+    res_df$cluster_B  <- cj
+
+    pairwise_list[[k]] <- res_df
+    k <- k + 1
+  }
+}
+
+res_pairwise <- bind_rows(pairwise_list)
+res_WT=res_pairwise
+
+## soglie che puoi cambiare
+lfc_thr  <- 1        # |log2FC| >= 1
+padj_thr <- 0.05     # FDR < 0.05
+
+res_WT <- res_WT %>%
+  mutate(
+    direction = case_when(
+      !is.na(padj) & padj < padj_thr & log2FoldChange >=  lfc_thr ~ "Up",
+      !is.na(padj) & padj < padj_thr & log2FoldChange <= -lfc_thr ~ "Down",
+      TRUE                                                            ~ "NS"
+    )
+  )
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_pseudobulk_monocle_clusters_WT_comparisons.tsv")
+# opzionale: salva su file
+write.table(
+  res_WT,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+
+res_sig <- res_WT %>%
+  filter(
+    !is.na(padj),
+    padj < padj_thr,
+    abs(log2FoldChange) >= lfc_thr
+  )
+
+## TOP UP-regolati per confronto (es. primi 50)
+top_up_by_comparison <- res_sig %>%
+  filter(log2FoldChange > 0) %>%
+  group_by(comparison) %>%
+  arrange(desc(log2FoldChange), .by_group = TRUE) %>%
+  mutate(rank_up = row_number()) %>%
+  filter(rank_up <= 50) %>%
+  ungroup()
+
+## TOP DOWN-regolati per confronto (es. primi 50)
+top_down_by_comparison <- res_sig %>%
+  filter(log2FoldChange < 0) %>%
+  group_by(comparison) %>%
+  arrange(log2FoldChange, .by_group = TRUE) %>%  # più negativi in alto
+  mutate(rank_down = row_number()) %>%
+  filter(rank_down <= 50) %>%
+  ungroup()
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_up_by_comparison_WT_cl1hPSC.tsv")
+write.table(
+  top_up_by_comparison,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_down_by_comparison_WT_cl2Neur.tsv")
+write.table(
+  top_down_by_comparison,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+ok_pal <- c(
+  "Up"   = "#CC79A7",
+  "Down" = "#009E73",
+  "NS"   = "grey70"
+)
+
+EnhancedVolcano(
+    res_WT,
+    lab = res_WT$gene,
+    x = 'log2FoldChange',
+    y = 'padj',
+    pCutoff  = padj_thr,
+    FCcutoff = lfc_thr,
+    
+    title    = "cl 1 vs cl 2 (WT only)",
+    subtitle = 'Volcano Plot',
+    caption  = paste0('padj < ', padj_thr, '  |  |log2FC| > ', lfc_thr),
+    
+    pointSize = 2,
+    
+    ## colori personalizzati
+    colCustom = ok_pal[res_WT$direction],
+    colAlpha  = 0.5,
+    
+    ## connettori
+    drawConnectors  = TRUE,
+    widthConnectors = 0.1,
+    colConnectors   = 'black',
+    
+    ## label appearance
+    labSize      = 2.5,
+    boxedLabels  = FALSE,
+    max.overlaps = 30,
+    
+    legendLabSize  = 10,
+    legendIconSize = 3.5,
+    borderWidth    = 0.1,
+    axisLabSize    = 12
+  ) +
+    theme(
+      panel.background  = element_rect(fill = "white"),
+      plot.background   = element_rect(fill = "white"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank(),
+      axis.line         = element_line(colour = "black"),
+      legend.background = element_rect(fill = "white")
+    )
+  
+ggsave(
+    filename = paste0(fname_prefix_dotplot, "_volcano_", "1vs2", "_WT_pseudobulk.pdf"),
+    width    = 6,
+    height   = 7
+  )
+
+```
+
+####GSEA on pseudobulk analysis WT only (cl 1 vs cl 2)
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+library(org.Hs.eg.db)
+library(DOSE)
+library(dplyr)
+
+
+res_WT$gene_name=res_WT$gene
+set_min_n_genes <- 5
+
+## prendi solo i confronti cluster vs rest
+#cl_vs_rest <- unique(res_all$comparison[grepl("vs_rest$", res_all$comparison)])
+cl_vs_rest <- unique(res_WT$comparison)
+cl_vs_rest
+# controlla che siano quelli che ti aspetti: es. "7_vs_rest", "3_vs_rest", ...
+
+## Costruisci le ranked lists: named numeric vector (values = log2FC, names = SYMBOL)
+gene_sets_GSEA <- list()
+
+for (comp in cl_vs_rest) {
+  df_comp <- res_WT %>%
+    filter(comparison == comp, !is.na(padj), !is.na(log2FoldChange)) 
+  
+  ## usa gene_name come SYMBOL (se non l'hai, vedi commento sotto)
+  df_comp <- df_comp %>%
+    filter(!is.na(gene_name), gene_name != "")
+  
+  if (!nrow(df_comp)) {
+    message("No genes for comparison ", comp, " – skipping.")
+    next
+  }
+  
+  ranks <- df_comp$log2FoldChange
+  names(ranks) <- df_comp$gene_name
+  
+  ## ordina decrescente come richiesto da gseGO
+  ranks <- sort(ranks, decreasing = TRUE)
+  
+  gene_sets_GSEA[[comp]] <- ranks
+}
+
+## Controllo di sicurezza
+stopifnot(
+  all(sapply(gene_sets_GSEA, function(x) is.numeric(x) && length(x) > 0 && !is.null(names(x))))
+)
+
+# Se NON hai `gene_name` ma solo `gene` con SYMBOL, sostituisci sopra `gene_name` con `gene`.
+## Mappa tutti i SYMBOL che compaiono in qualsiasi ranked list
+symbol_to_entrez <- suppressMessages(
+  bitr(
+    unique(unlist(lapply(gene_sets_GSEA, names))),
+    fromType = "SYMBOL",
+    toType   = "ENTREZID",
+    OrgDb    = org.Hs.eg.db
+  )
+)
+
+gsea_list   <- list()
+GSEA_tables <- list()
+
+for (nm in names(gene_sets_GSEA)) {
+  ranks_sym <- gene_sets_GSEA[[nm]]
+  
+  df <- data.frame(SYMBOL = names(ranks_sym),
+                   rank   = as.numeric(ranks_sym))
+  
+  df2 <- merge(df, symbol_to_entrez, by = "SYMBOL")
+  
+  if (!nrow(df2)) {
+    message("No ENTREZ mapping for ", nm, " – skipping.")
+    next
+  }
+  
+  ## deduplico per ENTREZ tenendo il gene con |rank| maggiore
+  df2 <- df2[order(-abs(df2$rank)), ]
+  df2 <- df2[!duplicated(df2$ENTREZID), ]
+  
+  ranks_entrez <- df2$rank
+  names(ranks_entrez) <- df2$ENTREZID
+  ranks_entrez <- sort(ranks_entrez, decreasing = TRUE)
+  
+  gsea <- suppressMessages(
+    gseGO(
+      geneList      = ranks_entrez,
+      OrgDb         = org.Hs.eg.db,
+      keyType       = "ENTREZID",
+      ont           = "BP",
+      minGSSize     = set_min_n_genes,
+      maxGSSize     = 500,
+      pAdjustMethod = "BH",
+      pvalueCutoff  = 1,
+      nPermSimple   = 10000,
+      by            = "fgsea",
+      verbose       = FALSE
+    )
+  )
+  
+  if (is.null(gsea) || nrow(as.data.frame(gsea)) == 0L) {
+    message("No enriched terms for ", nm)
+    gsea_list[[nm]]   <- NULL
+    GSEA_tables[[nm]] <- NULL
+    next
+  }
+  
+  ## rendo leggibili i geni
+  gsea_readable <- setReadable(gsea,
+                               OrgDb  = org.Hs.eg.db,
+                               keyType = "ENTREZID")
+  
+  gsea_list[[nm]]   <- gsea_readable
+  GSEA_tables[[nm]] <- as.data.frame(gsea_readable)
+}
+
+gsea_sig_list <- lapply(gsea_list, function(gsea_obj) {
+  if (is.null(gsea_obj)) return(NULL)
+  df <- gsea_obj@result
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  df_sig <- dplyr::filter(df, p.adjust < 0.05)
+  gsea_obj@result <- df_sig
+  gsea_obj
+})
+
+## 4a. Scrivi le tabelle GSEA in CSV
+if (length(GSEA_tables)) {
+  for (nm in names(GSEA_tables)) {
+    if (is.null(GSEA_tables[[nm]]) || !nrow(GSEA_tables[[nm]])) next
+    file <- paste0(fname_prefix_csv, "_GSEA_pseudobulk_", nm, ".csv")
+    write.csv(GSEA_tables[[nm]], file, row.names = FALSE)
+    message("Wrote: ", file)
+  }
+}
+
+## 4b. Funzione helper per salvare plot
+.save_plot <- function(p, file, w = 8, h = 10) {
+  if (!is.null(p) && inherits(p, "ggplot")) {
+    ggsave(filename = file, plot = p, width = w, height = h)
+    message("Saved: ", file)
+  }
+}
+
+## 4c. Dotplot per ciascun confronto cluster vs rest
+plot_gsea_dotplots <- function(gsea_list, fname_prefix, show_k = 10,
+                               width = 8, height = 10) {
+  if (!length(gsea_list)) {
+    message("gsea_list is empty.")
+    return(invisible(NULL))
+  }
+  
+  for (nm in names(gsea_list)) {
+    g <- gsea_list[[nm]]
+    if (is.null(g)) {
+      message("Skipping ", nm, " (NULL).")
+      next
+    }
+    
+    df <- tryCatch(as.data.frame(g), error = function(e) NULL)
+    if (is.null(df) || !nrow(df)) {
+      message("Skipping ", nm, " (no terms).")
+      next
+    }
+    
+    k <- min(show_k, nrow(df))
+    
+    p <- tryCatch(
+      dotplot(g, showCategory = k, split = ".sign", orderBy = "NES") +
+        facet_grid(. ~ .sign),
+      error = function(e) {
+        message("Plot error in ", nm, ": ", e$message)
+        NULL
+      }
+    )
+    
+    out_pdf <- paste0(fname_prefix, "_GSEA_pseudobulk_", nm, "_dotplot.pdf")
+    .save_plot(p, out_pdf, w = width, h = height)
+  }
+}
+
+plot_gsea_dotplots(gsea_list, fname_prefix = fname_prefix_GO, show_k = 15)
+
+Rdata_filename <- paste0(fname_prefix_GO, "_GSEA_pseudobulk_WT.RData")
+save(gene_sets_GSEA, gsea_list, GSEA_tables, res_WT,
+     file = Rdata_filename)
+
+#go_ids <- c("GO:0042551", "GO:0007492", "GO:0007498")
+
+#save_gsea_plots <- function(gsea_res, contrast_name, go_ids, prefix,
+  #                          width = 8, height = 6) {
+ # if (is.null(gsea_res)) {
+  #  message("No GSEA result for ", contrast_name)
+   # return(invisible(NULL))
+ # }
+  
+  #for (go_id in go_ids) {
+   # if (go_id %in% gsea_res@result$ID) {
+    #  p <- gseaplot2(gsea_res, geneSetID = go_id, title = go_id)
+     # out_file <- paste0(prefix, "_pseudobulk_", contrast_name, "_", 
+      #                   gsub(":", "-", go_id), ".pdf")
+      #ggsave(out_file, plot = p, width = width, height = height)
+     # message("Saved: ", out_file)
+    #} else {
+     # message("GO term ", go_id, " not found in ", contrast_name)
+    #}}}
+
+## esempio: fai loop su tutti i cl_vs_rest
+#for (comp in cl_vs_rest) {
+ # save_gsea_plots(gsea_list[[comp]], comp, go_ids, fname_prefix_GO)
+#}
+```
+
+
+
+####comparisons of only NANOG OVER samp
+
+```{r}
+
+## 4) COMPARAZIONI DE: cluster vs cluster (tutti i pairwise)
+#cluster_levels <- levels(pb_metaNO$monocle_clusters)
+cluster_levels=c("3","4","5")
+
+pairwise_list <- list()
+k <- 1
+for (i in seq_along(cluster_levels)) {
+  for (j in seq_along(cluster_levels)) {
+    if (i >= j) next   # evita duplicati e self-comparison
+
+    ci <- cluster_levels[i]
+    cj <- cluster_levels[j]
+
+    res_ij <- results(dds_NO, contrast = c("monocle_clusters", ci, cj))
+    res_df <- as.data.frame(res_ij)
+    res_df$gene       <- rownames(res_df)
+    res_df$comparison <- paste0(ci, "_vs_", cj)
+    res_df$cluster_A  <- ci
+    res_df$cluster_B  <- cj
+
+    pairwise_list[[k]] <- res_df
+    k <- k + 1
+  }
+}
+
+res_pairwise <- bind_rows(pairwise_list)
+
+## 5) COMPARAZIONI one-vs-rest (cluster vs tutti gli altri) – versione “safe”
+
+one_vs_rest_list <- list()
+k <- 1
+
+for (cl in cluster_levels) {
+  message("Running one-vs-rest for cluster ", cl)
+  
+  dds_tmp <- dds_NO
+  
+  ## definisci il fattore group_ovr: cluster vs REST
+  dds_tmp$group_ovr <- ifelse(dds_tmp$monocle_clusters == cl, cl, "REST")
+  dds_tmp$group_ovr <- factor(dds_tmp$group_ovr,
+                              levels = c("REST", cl))  # REST è il riferimento
+  
+  design(dds_tmp) <- ~ group_ovr
+  
+  ## re-fit
+  dds_tmp <- DESeq(dds_tmp)
+  
+  ## controlla i nomi dei coefficienti, così sei sicura di usare quello giusto
+  rn <- resultsNames(dds_tmp)
+  print(rn)
+  ## ci sarà qualcosa tipo "group_ovr_cl7_vs_REST" se cl == "7"
+  
+  coef_name_pattern <- paste0("group_ovr_", cl, "_vs_REST")
+  coef_name <- rn[grepl(coef_name_pattern, rn)]
+  
+  if (length(coef_name) != 1) {
+    stop("Could not uniquely identify coefficient for cluster ", cl,
+         ". Found: ", paste(rn, collapse = ", "))
+  }
+  
+  ## questo è per definizione log2(cl / REST)
+  res_cl <- results(dds_tmp, name = coef_name)
+  
+  res_df <- as.data.frame(res_cl)
+  res_df$gene       <- rownames(res_df)
+  res_df$comparison <- paste0(cl, "_vs_rest")   # il nome riflette cl/REST
+  res_df$cluster    <- cl
+  
+  one_vs_rest_list[[k]] <- res_df
+  k <- k + 1
+}
+
+res_one_vs_rest <- bind_rows(one_vs_rest_list)
+
+
+## 6) METTI TUTTE LE COMPARAZIONI IN UN’UNICA TABELLA
+res_all <- bind_rows(res_pairwise, res_one_vs_rest)
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_pseudobulk_monocle_clusters_NANOGOVER_comparisons.tsv")
+# opzionale: salva su file
+write.table(
+  res_all,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+## soglie che puoi cambiare
+lfc_thr  <- 1        # |log2FC| >= 1
+padj_thr <- 0.05     # FDR < 0.05
+
+res_sig <- res_all %>%
+  filter(
+    !is.na(padj),
+    padj < padj_thr,
+    abs(log2FoldChange) >= lfc_thr
+  )
+
+## TOP UP-regolati per confronto (es. primi 50)
+top_up_by_comparison <- res_sig %>%
+  filter(log2FoldChange > 0) %>%
+  group_by(comparison) %>%
+  arrange(desc(log2FoldChange), .by_group = TRUE) %>%
+  mutate(rank_up = row_number()) %>%
+  filter(rank_up <= 50) %>%
+  ungroup()
+
+## TOP DOWN-regolati per confronto (es. primi 50)
+top_down_by_comparison <- res_sig %>%
+  filter(log2FoldChange < 0) %>%
+  group_by(comparison) %>%
+  arrange(log2FoldChange, .by_group = TRUE) %>%  # più negativi in alto
+  mutate(rank_down = row_number()) %>%
+  filter(rank_down <= 50) %>%
+  ungroup()
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_up_by_comparison_NO.tsv")
+write.table(
+  top_up_by_comparison,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_down_by_comparison_NO.tsv")
+write.table(
+  top_down_by_comparison,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+## tieni solo le righe one-vs-rest
+res_ovr <- res_sig %>%
+  filter(grepl("_vs_rest$", comparison))
+
+## TOP up per cluster (marker “positivi” del cluster)
+top_markers_cluster_up <- res_ovr %>%
+  filter(log2FoldChange > 0) %>%
+  group_by(cluster) %>%
+  arrange(desc(log2FoldChange), .by_group = TRUE) %>%
+  mutate(rank_up = row_number()) %>%
+  filter(rank_up <= 50) %>%
+  ungroup()
+
+## TOP down per cluster (geni “persi” nel cluster)
+top_markers_cluster_down <- res_ovr %>%
+  filter(log2FoldChange < 0) %>%
+  group_by(cluster) %>%
+  arrange(log2FoldChange, .by_group = TRUE) %>%
+  mutate(rank_down = row_number()) %>%
+  filter(rank_down <= 50) %>%
+  ungroup()
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_up_per_cluster_ovr_NO.tsv")
+write.table(
+  top_markers_cluster_up,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+stat_filename = paste0(fname_prefix_stat, "_DESeq2_top50_down_per_cluster_ovr_NO.tsv")
+write.table(
+  top_markers_cluster_down,
+  file      = stat_filename,
+  sep       = "\t",
+  quote     = FALSE,
+  row.names = FALSE
+)
+
+## soglie
+padj_thr <- 0.05
+lfc_thr  <- 1  # |log2FC| > 1
+
+## palette come nel tuo esempio
+#ok_pal <- c("Up" = "#CC79A7", "Down" = "#009E73", "NS" = "grey70")
+
+## aggiungi colonna direction una volta sola su res_all
+res_all <- res_all %>%
+  mutate(
+    direction = case_when(
+      !is.na(padj) & padj < padj_thr & log2FoldChange >=  lfc_thr ~ "Up",
+      !is.na(padj) & padj < padj_thr & log2FoldChange <= -lfc_thr ~ "Down",
+      TRUE                                                            ~ "NS"
+    )
+  )
+
+res_all_NO=res_all
+
+```
+
+
+#volcano plots for pseudobulk differential expression NANOG OVER only per monocle cluster (3, 4, 5)
+
+```{r}
+## palette dal tuo esempio
+ok_pal <- c(
+  "Up"   = "#CC79A7",
+  "Down" = "#009E73",
+  "NS"   = "grey70"
+)
+
+plot_volcano_enhanced <- function(
+  comp,
+  res_table   = res_all_NO,
+  padj_thr    = 0.05,
+  lfc_thr     = 1,
+  left_label  = NULL,
+  right_label = NULL,
+  title       = NULL
+) {
+  ## subset dei risultati
+  df <- res_table %>%
+    filter(comparison == comp, !is.na(padj))
+  
+  if (nrow(df) == 0)
+    stop("No results for comparison = ", comp)
+  
+  ## gestione etichette dei geni
+  if ("gene_name" %in% colnames(df)) {
+    lab_vec <- df$gene_name
+  } else if ("gene" %in% colnames(df)) {
+    lab_vec <- df$gene
+  } else {
+    lab_vec <- rownames(df)
+  }
+  
+  ## estrai nomi laterali automaticamente se NULL
+  if (is.null(left_label) || is.null(right_label)) {
+    parts <- strsplit(comp, "_vs_")[[1]]
+    if (length(parts) == 2) {
+      if (is.null(right_label)) right_label <- parts[1]
+      if (is.null(left_label))  left_label  <- parts[2]
+    } else {
+      if (is.null(right_label)) right_label <- comp
+      if (is.null(left_label))  left_label  <- ""
+    }
+  }
+  
+  ## titolo di default
+  if (is.null(title))
+    title <- comp
+  
+  ## range per scritte laterali
+  x_min <- min(df$log2FoldChange, na.rm = TRUE)
+  x_max <- max(df$log2FoldChange, na.rm = TRUE)
+  y_max <- max(-log10(df$padj), na.rm = TRUE)
+  
+  ## costruisci volcano stile EnhancedVolcano
+  p <- EnhancedVolcano(
+    df,
+    lab = lab_vec,
+    x = 'log2FoldChange',
+    y = 'padj',
+    pCutoff  = padj_thr,
+    FCcutoff = lfc_thr,
+    
+    title    = title,
+    subtitle = 'Volcano Plot',
+    caption  = paste0('padj < ', padj_thr, '  |  |log2FC| > ', lfc_thr),
+    
+    pointSize = 2,
+    
+    ## colori personalizzati
+    colCustom = ok_pal[df$direction],
+    colAlpha  = 0.5,
+    
+    ## connettori
+    drawConnectors  = TRUE,
+    widthConnectors = 0.1,
+    colConnectors   = 'black',
+    
+    ## label appearance
+    labSize      = 2.5,
+    boxedLabels  = FALSE,
+    max.overlaps = 30,
+    
+    legendLabSize  = 10,
+    legendIconSize = 3.5,
+    borderWidth    = 0.1,
+    axisLabSize    = 12
+  ) +
+    annotate("text",
+             x = x_min * 0.5,
+             y = y_max * 0.5,
+             label = left_label,
+             hjust = 0, size = 4,
+             fontface = "bold", colour = "black") +
+    annotate("text",
+             x = x_max * 0.5,
+             y = y_max * 0.5,
+             label = right_label,
+             hjust = 1, size = 4,
+             fontface = "bold", colour = "black") +
+    theme(
+      panel.background  = element_rect(fill = "white"),
+      plot.background   = element_rect(fill = "white"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank(),
+      axis.line         = element_line(colour = "black"),
+      legend.background = element_rect(fill = "white")
+    )
+  
+  return(p)
+}
+
+for (comp in unique(res_all$comparison)) {
+  p <- plot_volcano_enhanced(comp)
+  
+  ggsave(
+    filename = paste0(fname_prefix_dotplot, "_volcano_", comp, "_NO_pseudobulk.pdf"),
+    plot     = p,
+    width    = 6,
+    height   = 7
+  )
+}
+```
+
+####GSEA on pseudobulk analysis
+#NANOG OVER
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+library(org.Hs.eg.db)
+library(DOSE)
+library(dplyr)
+
+
+res_all_NO$gene_name=res_all_NO$gene
+set_min_n_genes <- 5
+
+## prendi solo i confronti cluster vs rest
+#cl_vs_rest <- unique(res_all$comparison[grepl("vs_rest$", res_all$comparison)])
+cl_vs_rest <- unique(res_all_NO$comparison)
+cl_vs_rest
+# controlla che siano quelli che ti aspetti: es. "7_vs_rest", "3_vs_rest", ...
+
+## Costruisci le ranked lists: named numeric vector (values = log2FC, names = SYMBOL)
+gene_sets_GSEA <- list()
+
+for (comp in cl_vs_rest) {
+  df_comp <- res_all_NO %>%
+    filter(comparison == comp, !is.na(padj), !is.na(log2FoldChange)) 
+  
+  ## usa gene_name come SYMBOL (se non l'hai, vedi commento sotto)
+  df_comp <- df_comp %>%
+    filter(!is.na(gene_name), gene_name != "")
+  
+  if (!nrow(df_comp)) {
+    message("No genes for comparison ", comp, " – skipping.")
+    next
+  }
+  
+  ranks <- df_comp$log2FoldChange
+  names(ranks) <- df_comp$gene_name
+  
+  ## ordina decrescente come richiesto da gseGO
+  ranks <- sort(ranks, decreasing = TRUE)
+  
+  gene_sets_GSEA[[comp]] <- ranks
+}
+
+## Controllo di sicurezza
+stopifnot(
+  all(sapply(gene_sets_GSEA, function(x) is.numeric(x) && length(x) > 0 && !is.null(names(x))))
+)
+
+# Se NON hai `gene_name` ma solo `gene` con SYMBOL, sostituisci sopra `gene_name` con `gene`.
+## Mappa tutti i SYMBOL che compaiono in qualsiasi ranked list
+symbol_to_entrez <- suppressMessages(
+  bitr(
+    unique(unlist(lapply(gene_sets_GSEA, names))),
+    fromType = "SYMBOL",
+    toType   = "ENTREZID",
+    OrgDb    = org.Hs.eg.db
+  )
+)
+
+gsea_list   <- list()
+GSEA_tables <- list()
+
+for (nm in names(gene_sets_GSEA)) {
+  ranks_sym <- gene_sets_GSEA[[nm]]
+  
+  df <- data.frame(SYMBOL = names(ranks_sym),
+                   rank   = as.numeric(ranks_sym))
+  
+  df2 <- merge(df, symbol_to_entrez, by = "SYMBOL")
+  
+  if (!nrow(df2)) {
+    message("No ENTREZ mapping for ", nm, " – skipping.")
+    next
+  }
+  
+  ## deduplico per ENTREZ tenendo il gene con |rank| maggiore
+  df2 <- df2[order(-abs(df2$rank)), ]
+  df2 <- df2[!duplicated(df2$ENTREZID), ]
+  
+  ranks_entrez <- df2$rank
+  names(ranks_entrez) <- df2$ENTREZID
+  ranks_entrez <- sort(ranks_entrez, decreasing = TRUE)
+  
+  gsea <- suppressMessages(
+    gseGO(
+      geneList      = ranks_entrez,
+      OrgDb         = org.Hs.eg.db,
+      keyType       = "ENTREZID",
+      ont           = "BP",
+      minGSSize     = set_min_n_genes,
+      maxGSSize     = 500,
+      pAdjustMethod = "BH",
+      pvalueCutoff  = 1,
+      nPermSimple   = 10000,
+      by            = "fgsea",
+      verbose       = FALSE
+    )
+  )
+  
+  if (is.null(gsea) || nrow(as.data.frame(gsea)) == 0L) {
+    message("No enriched terms for ", nm)
+    gsea_list[[nm]]   <- NULL
+    GSEA_tables[[nm]] <- NULL
+    next
+  }
+  
+  ## rendo leggibili i geni
+  gsea_readable <- setReadable(gsea,
+                               OrgDb  = org.Hs.eg.db,
+                               keyType = "ENTREZID")
+  
+  gsea_list[[nm]]   <- gsea_readable
+  GSEA_tables[[nm]] <- as.data.frame(gsea_readable)
+}
+
+gsea_sig_list <- lapply(gsea_list, function(gsea_obj) {
+  if (is.null(gsea_obj)) return(NULL)
+  df <- gsea_obj@result
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  df_sig <- dplyr::filter(df, p.adjust < 0.05)
+  gsea_obj@result <- df_sig
+  gsea_obj
+})
+
+## 4a. Scrivi le tabelle GSEA in CSV
+if (length(GSEA_tables)) {
+  for (nm in names(GSEA_tables)) {
+    if (is.null(GSEA_tables[[nm]]) || !nrow(GSEA_tables[[nm]])) next
+    file <- paste0(fname_prefix_csv, "_GSEA_pseudobulk_NO_", nm, ".csv")
+    write.csv(GSEA_tables[[nm]], file, row.names = FALSE)
+    message("Wrote: ", file)
+  }
+}
+
+## 4b. Funzione helper per salvare plot
+.save_plot <- function(p, file, w = 8, h = 10) {
+  if (!is.null(p) && inherits(p, "ggplot")) {
+    ggsave(filename = file, plot = p, width = w, height = h)
+    message("Saved: ", file)
+  }
+}
+
+## 4c. Dotplot per ciascun confronto cluster vs rest
+plot_gsea_dotplots <- function(gsea_list, fname_prefix, show_k = 10,
+                               width = 8, height = 10) {
+  if (!length(gsea_list)) {
+    message("gsea_list is empty.")
+    return(invisible(NULL))
+  }
+  
+  for (nm in names(gsea_list)) {
+    g <- gsea_list[[nm]]
+    if (is.null(g)) {
+      message("Skipping ", nm, " (NULL).")
+      next
+    }
+    
+    df <- tryCatch(as.data.frame(g), error = function(e) NULL)
+    if (is.null(df) || !nrow(df)) {
+      message("Skipping ", nm, " (no terms).")
+      next
+    }
+    
+    k <- min(show_k, nrow(df))
+    
+    p <- tryCatch(
+      dotplot(g, showCategory = k, split = ".sign", orderBy = "NES") +
+        facet_grid(. ~ .sign),
+      error = function(e) {
+        message("Plot error in ", nm, ": ", e$message)
+        NULL
+      }
+    )
+    
+    out_pdf <- paste0(fname_prefix, "_GSEA_pseudobulk_NO_", nm, "_dotplot.pdf")
+    .save_plot(p, out_pdf, w = width, h = height)
+  }
+}
+
+plot_gsea_dotplots(gsea_list, fname_prefix = fname_prefix_GO, show_k = 15)
+
+Rdata_filename <- paste0(fname_prefix_GO, "_GSEA_pseudobulk_NO_clusters_vs_rest.RData")
+save(gene_sets_GSEA, gsea_list, GSEA_tables, res_all,
+     file = Rdata_filename)
+
+#go_ids <- c("GO:0042551", "GO:0007492", "GO:0007498")
+
+#save_gsea_plots <- function(gsea_res, contrast_name, go_ids, prefix,
+  #                          width = 8, height = 6) {
+ # if (is.null(gsea_res)) {
+  #  message("No GSEA result for ", contrast_name)
+   # return(invisible(NULL))
+ # }
+  
+  #for (go_id in go_ids) {
+   # if (go_id %in% gsea_res@result$ID) {
+    #  p <- gseaplot2(gsea_res, geneSetID = go_id, title = go_id)
+     # out_file <- paste0(prefix, "_pseudobulk_", contrast_name, "_", 
+      #                   gsub(":", "-", go_id), ".pdf")
+      #ggsave(out_file, plot = p, width = width, height = height)
+     # message("Saved: ", out_file)
+    #} else {
+     # message("GO term ", go_id, " not found in ", contrast_name)
+    #}}}
+
+## esempio: fai loop su tutti i cl_vs_rest
+#for (comp in cl_vs_rest) {
+ # save_gsea_plots(gsea_list[[comp]], comp, go_ids, fname_prefix_GO)
+#}
+```
+#####
+#Pseudobulk DE aggregation by sample and treatment (so I can compare WT E8 vs WT E6;NO E8 vs NO E6, WT E8 vs NO E8)
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(DESeq2)
+
+seurat <- seurat_AB04
+Idents(seurat) <- "monocle_clusters"
+## COSTRUISCI meta_to_use DAL META.DATA DI SEURAT
+meta_to_use <- seurat@meta.data %>%
+  dplyr::select(
+    sample_id,
+    samp,
+    media,
+    type,
+  )
+
+## Crea pb_group USANDO meta_to_use (non meta!)
+meta_to_use$pb_group <- interaction(
+  meta_to_use$sample_id,
+  meta_to_use$samp,
+  sep  = "__",
+  drop = TRUE
+)
+
+## Scrivi pb_group dentro Seurat (stesso ordine delle celle)
+seurat$pb_group <- meta_to_use$pb_group
+## COSTRUISCI pb_meta come nel tuo schema (usa esattamente gli stessi campi)
+pb_meta <- meta_to_use %>%
+  dplyr::group_by(pb_group) %>%
+  dplyr::summarise(
+    sample_id        = dplyr::first(sample_id),
+    samp             = dplyr::first(samp),
+    media            = dplyr::first(media),
+    type             = dplyr::first(type),
+    n_cells          = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  column_to_rownames("pb_group")
+
+
+###aggregate counts per sample×cluster
+agg <- AggregateExpression(
+  seurat,
+  assays  = "originalexp",  # o l'assay giusto
+  slot    = "counts",
+  group.by = "pb_group",
+  fun     = "sum"
+)
+
+pb_counts <- as.matrix(agg$originalexp)
+
+## 1) Porta i rownames di pb_meta nello stesso formato di pb_counts
+rownames(pb_meta) <- gsub("_", "-", rownames(pb_meta))
+# questo converte: cl6_WT_P2_E8_n3__7  ->  cl6-WT-P2-E8-n3--7
+
+## 2) Diagnostica e allineamento robusto
+pb_groups_counts <- colnames(pb_counts)
+pb_groups_meta   <- rownames(pb_meta)
+
+missing_in_meta   <- setdiff(pb_groups_counts, pb_groups_meta)
+missing_in_counts <- setdiff(pb_groups_meta, pb_groups_counts)
+
+cat("N groups in pb_counts: ", length(pb_groups_counts), "\n")
+cat("N groups in pb_meta:   ", length(pb_groups_meta), "\n")
+cat("Only in counts: ", length(missing_in_meta), "\n")
+cat("Only in meta:   ", length(missing_in_counts), "\n")
+
+# Usa solo i gruppi comuni (per sicurezza)
+common_groups <- intersect(pb_groups_counts, pb_groups_meta)
+
+if (length(common_groups) < 2) {
+  stop("Too few common groups between pb_counts and pb_meta.")
+}
+
+pb_counts <- pb_counts[, common_groups, drop = FALSE]
+pb_meta   <- pb_meta[common_groups, , drop = FALSE]
+
+# Ordine identico
+pb_meta <- pb_meta[colnames(pb_counts), , drop = FALSE]
+stopifnot(identical(colnames(pb_counts), rownames(pb_meta)))
+
+## 2) PREPARE DESeq2
+## IMPORTANT: set factor levels (these determine reference levels in the model)
+pb_meta$media <- factor(pb_meta$media, levels = c("E6_FGF", "E8"))          # reference = E6_FGF
+pb_meta$type  <- factor(pb_meta$type,  levels = c("WT", "NANOG_OVER"))      # reference = WT
+
+## Single DESeq2 dataset with interaction
+dds <- DESeqDataSetFromMatrix(
+  countData = round(pb_counts),
+  colData   = pb_meta,
+  design    = ~ type + media + type:media
+)
+
+# Filter low-expressed genes
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+
+# Fit
+dds <- DESeq(dds)
+
+## PCA with VST (optional)
+vsd <- vst(dds, blind = TRUE)
+
+pcaData <- plotPCA(vsd, intgroup = c("media", "type"), returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+p_pca <- ggplot(pcaData, aes(PC1, PC2, color = media, shape = type)) +
+  geom_point(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "% var")) +
+  ylab(paste0("PC2: ", percentVar[2], "% var")) +
+  theme_bw()
+
+p_pca
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "PCA_pseudobulk_samp_all.pdf"), width = 6, height = 5)
+```
+
+#####build comparisons
+1) analyze dds_NO to compare NANOG_OVER (already sampled) between media E8 vs E6_FGF;
+2)analyze dds_WT to compare WT (already sampled) between media E8 vs E6_FGF;
+3) analyze dds_E8 to compare E8 treated (already sampled) between type WT vs NANOG_OVER. 
+
+```{r}
+
+suppressPackageStartupMessages({
+  library(DESeq2)
+  library(dplyr)
+  library(tibble)
+  library(ggplot2)
+  library(ggrepel)
+  library(fgsea)
+  library(msigdbr)
+})
+
+
+alpha <- 0.05
+lfc_cut <- 1   # set to 0 if you want "Up/Down" purely by sign, without effect-size threshold
+
+# --- Get coefficient names robustly ---
+rn <- resultsNames(dds)
+rn
+
+coef_mediaE8 <- rn[grepl("^media_", rn) & grepl("E8", rn)]
+coef_typeNO  <- rn[grepl("^type_",  rn) & grepl("NANOG_OVER", rn)]
+coef_int     <- rn[grepl("type.*NANOG_OVER.*media.*E8", rn)]
+
+stopifnot(length(coef_mediaE8) == 1, length(coef_typeNO) == 1, length(coef_int) == 1)
+
+coef_mediaE8 <- coef_mediaE8[[1]]   # WT: E8 vs E6_FGF
+coef_typeNO  <- coef_typeNO[[1]]    # NO vs WT at reference media (E6_FGF)
+coef_int     <- coef_int[[1]]       # interaction term
+
+# --- helper to make a clean annotated table ---
+make_tbl <- function(res, label, alpha = 0.05, lfc_cut = 1) {
+  as.data.frame(res) %>%
+    rownames_to_column("gene") %>%
+    mutate(
+      comparison = label,
+      is_sig = !is.na(padj) & padj < alpha,
+      direction = case_when(
+        is_sig & !is.na(log2FoldChange) & log2FoldChange >=  lfc_cut ~ "Up",
+        is_sig & !is.na(log2FoldChange) & log2FoldChange <= -lfc_cut ~ "Down",
+        TRUE ~ "NS"
+      )
+    ) %>%
+    arrange(padj)
+}
+
+# =========================
+# Comparison 1) NANOG_OVER: E8 vs E6_FGF
+# effect in NANOG_OVER = media(E8) + interaction
+# =========================
+res_NO_E8_vs_E6 <- results(
+  dds,
+  contrast = list(c(coef_mediaE8, coef_int)),
+  alpha = alpha
+)
+
+tbl_NO_E8_vs_E6 <- make_tbl(
+  res_NO_E8_vs_E6,
+  label = "NANOG_OVER: E8 vs E6_FGF",
+  alpha = alpha,
+  lfc_cut = lfc_cut
+)
+
+# =========================
+# Comparison 2) WT: E8 vs E6_FGF
+# effect in WT = media(E8)
+# =========================
+res_WT_E8_vs_E6 <- results(
+  dds,
+  name = coef_mediaE8,
+  alpha = alpha
+)
+
+tbl_WT_E8_vs_E6 <- make_tbl(
+  res_WT_E8_vs_E6,
+  label = "WT: E8 vs E6_FGF",
+  alpha = alpha,
+  lfc_cut = lfc_cut
+)
+
+# =========================
+# Comparison 3) E8 only: NANOG_OVER vs WT
+# type effect at E8 = type(NANOG_OVER) + interaction
+# =========================
+res_E8_NO_vs_WT <- results(
+  dds,
+  contrast = list(c(coef_typeNO, coef_int)),
+  alpha = alpha
+)
+
+tbl_E8_NO_vs_WT <- make_tbl(
+  res_E8_NO_vs_WT,
+  label = "E8 only: NANOG_OVER vs WT",
+  alpha = alpha,
+  lfc_cut = lfc_cut
+)
+
+# Optional: write tables
+filename = paste0(fname_prefix_csv, "_", "DE_NO_E8_vs_E6_FGF.csv")
+write.csv(tbl_NO_E8_vs_E6,filename, row.names = FALSE)
+filename = paste0(fname_prefix_csv, "_", "DE_WT_E8_vs_E6_FGF.csv")
+write.csv(tbl_WT_E8_vs_E6,filename, row.names = FALSE)
+filename = paste0(fname_prefix_csv, "_", "DE_E8_only_NO_vs_WT.csv")
+write.csv(tbl_E8_NO_vs_WT,filename, row.names = FALSE)
+
+# Optional: unified table (all 3)
+tbl_all3 <- bind_rows(tbl_NO_E8_vs_E6, tbl_WT_E8_vs_E6, tbl_E8_NO_vs_WT)
+filename = paste0(fname_prefix_csv, "_", "DE_pseudobulk_main_comparisons.csv")
+write.csv(tbl_all3, filename, row.names = FALSE)
+```
+
+####volcano plots for all 3 comparisons
+
+```{r}
+g=tbl_NO_E8_vs_E6
+
+ok_pal <- c(
+  "Up"   = "#CC79A7",
+  "Down" = "#009E73",
+  "NS"   = "grey70"
+)
+
+EnhancedVolcano(
+    g,
+    lab = g$gene,
+    x = 'log2FoldChange',
+    y = 'padj',
+    pCutoff  = padj_thr,
+    FCcutoff = lfc_thr,
+    
+    title    = unique(g$comparison),
+    subtitle = 'Volcano Plot',
+    caption  = paste0('padj < ', padj_thr, '  |  |log2FC| > ', lfc_thr),
+    
+    pointSize = 2,
+    
+    ## colori personalizzati
+    colCustom = ok_pal[g$direction],
+    colAlpha  = 0.5,
+    
+    ## connettori
+    drawConnectors  = TRUE,
+    widthConnectors = 0.1,
+    colConnectors   = 'black',
+    
+    ## label appearance
+    labSize      = 2.5,
+    boxedLabels  = FALSE,
+    max.overlaps = 30,
+    
+    legendLabSize  = 10,
+    legendIconSize = 3.5,
+    borderWidth    = 0.1,
+    axisLabSize    = 12
+  ) +
+    theme(
+      panel.background  = element_rect(fill = "white"),
+      plot.background   = element_rect(fill = "white"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank(),
+      axis.line         = element_line(colour = "black"),
+      legend.background = element_rect(fill = "white")
+    )
+  
+ggsave(
+    filename = paste0(fname_prefix_dotplot, "_volcano_", "E8vE7", "_NANOG_OVER_pseudobulk.pdf"),
+    width    = 6,
+    height   = 7
+  )
+
+g=tbl_WT_E8_vs_E6
+
+EnhancedVolcano(
+    g,
+    lab = g$gene,
+    x = 'log2FoldChange',
+    y = 'padj',
+    pCutoff  = padj_thr,
+    FCcutoff = lfc_thr,
+    
+    title    = unique(g$comparison),
+    subtitle = 'Volcano Plot',
+    caption  = paste0('padj < ', padj_thr, '  |  |log2FC| > ', lfc_thr),
+    
+    pointSize = 2,
+    
+    ## colori personalizzati
+    colCustom = ok_pal[g$direction],
+    colAlpha  = 0.5,
+    
+    ## connettori
+    drawConnectors  = TRUE,
+    widthConnectors = 0.1,
+    colConnectors   = 'black',
+    
+    ## label appearance
+    labSize      = 2.5,
+    boxedLabels  = FALSE,
+    max.overlaps = 30,
+    
+    legendLabSize  = 10,
+    legendIconSize = 3.5,
+    borderWidth    = 0.1,
+    axisLabSize    = 12
+  ) +
+    theme(
+      panel.background  = element_rect(fill = "white"),
+      plot.background   = element_rect(fill = "white"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank(),
+      axis.line         = element_line(colour = "black"),
+      legend.background = element_rect(fill = "white")
+    )
+  
+ggsave(
+    filename = paste0(fname_prefix_dotplot, "_volcano_", "E8vE7", "_WT_pseudobulk.pdf"),
+    width    = 6,
+    height   = 7
+  )
+
+g=tbl_E8_NO_vs_WT
+
+EnhancedVolcano(
+    g,
+    lab = g$gene,
+    x = 'log2FoldChange',
+    y = 'padj',
+    pCutoff  = padj_thr,
+    FCcutoff = lfc_thr,
+    
+    title    = unique(g$comparison),
+    subtitle = 'Volcano Plot',
+    caption  = paste0('padj < ', padj_thr, '  |  |log2FC| > ', lfc_thr),
+    
+    pointSize = 2,
+    
+    ## colori personalizzati
+    colCustom = ok_pal[g$direction],
+    colAlpha  = 0.5,
+    
+    ## connettori
+    drawConnectors  = TRUE,
+    widthConnectors = 0.1,
+    colConnectors   = 'black',
+    
+    ## label appearance
+    labSize      = 2.5,
+    boxedLabels  = FALSE,
+    max.overlaps = 30,
+    
+    legendLabSize  = 10,
+    legendIconSize = 3.5,
+    borderWidth    = 0.1,
+    axisLabSize    = 12
+  ) +
+    theme(
+      panel.background  = element_rect(fill = "white"),
+      plot.background   = element_rect(fill = "white"),
+      panel.grid.major  = element_blank(),
+      panel.grid.minor  = element_blank(),
+      axis.line         = element_line(colour = "black"),
+      legend.background = element_rect(fill = "white")
+    )
+  
+ggsave(
+    filename = paste0(fname_prefix_dotplot, "_volcano_", "NOvWT", "_E8_pseudobulk.pdf"),
+    width    = 6,
+    height   = 7
+  )
+```
+
+###GSEA analysis
+
+```{r}
+
+lfc_gsea=0.25 #low lfc to allow to get more genes in the GSEA
+set_min_n_genes <- 5
+alpha_gsea <- 0.05
+
+tbl_all3$treshold = ifelse(tbl_all3$is_sig==TRUE &
+      tbl_all3$log2FoldChange >= lfc_gsea, "Up",
+      ifelse(
+        tbl_all3$is_sig==TRUE & tbl_all3$log2FoldChange <= -lfc_gsea, "Down",
+        "other"))
+  
+gsea_stat=subset(tbl_all3,tbl_all3$treshold!="other") #filter for sig and lfc (not necessary but it can reduce the computational time and noise)
+#gsea_stat=tbl_all3 #unmute this if you do not want to filter for sig and lfc
+
+genes_E8_NOvsWT=subset(gsea_stat,gsea_stat$comparison=="E8 only: NANOG_OVER vs WT")
+genes_NO_E8vsE7=subset(gsea_stat,gsea_stat$comparison=="NANOG_OVER: E8 vs E6_FGF")
+genes_WT_E8vsE7=subset(gsea_stat,gsea_stat$comparison=="WT: E8 vs E6_FGF")
+
+genes <- genes_E8_NOvsWT$log2FoldChange
+names(genes) <- genes_E8_NOvsWT$gene
+genes <- sort(genes, decreasing = TRUE)
+genes_E8_NOvsWT=genes
+
+genes <- genes_NO_E8vsE7$log2FoldChange
+names(genes) <- genes_NO_E8vsE7$gene
+genes <- sort(genes, decreasing = TRUE)
+genes_NO_E8vsE7=genes
+
+genes <- genes_WT_E8vsE7$log2FoldChange
+names(genes) <- genes_WT_E8vsE7$gene
+genes <- sort(genes, decreasing = TRUE)
+genes_WT_E8vsE7=genes
+
+gene_sets_GSEA <- list(
+  "E8_NOvsWT"    = genes_E8_NOvsWT,
+  "NO_E8vsE7"    = genes_NO_E8vsE7,
+  "WT_E8vsE7"  = genes_WT_E8vsE7)
+
+# Map SYMBOL -> ENTREZ, then rebuild ranked vectors in ENTREZ space
+symbol_to_entrez <- suppressMessages(bitr(
+  unique(unlist(lapply(gene_sets_GSEA, names))),
+  fromType="SYMBOL", toType="ENTREZID", OrgDb=org.Hs.eg.db
+))
+
+gsea_list   <- list()
+GSEA_tables <- list()
+
+for (nm in names(gene_sets_GSEA)) {
+  ranks_sym <- gene_sets_GSEA[[nm]]
+
+  # join to map to ENTREZ
+  df <- data.frame(SYMBOL = names(ranks_sym), rank = as.numeric(ranks_sym))
+  df2 <- merge(df, symbol_to_entrez, by="SYMBOL")
+  if (!nrow(df2)) next
+
+  # deduplicate ENTREZ if necessary (keep max |rank|)
+  df2 <- df2[order(-abs(df2$rank)), ]
+  df2 <- df2[!duplicated(df2$ENTREZID), ]
+
+  ranks_entrez <- df2$rank
+  names(ranks_entrez) <- df2$ENTREZID
+  ranks_entrez <- sort(ranks_entrez, decreasing = TRUE)
+
+  gsea <- gseGO(geneList      = ranks_entrez,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = "ENTREZID",
+                ont           = "BP",
+                minGSSize     = set_min_n_genes,#place this automatic
+                maxGSSize     = 500,
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 1,
+                nPermSimple = 10000,# readable=TRUE,
+                verbose       = FALSE, by = "fgsea")
+  
+gsea_readable <- setReadable(gsea, OrgDb = org.Hs.eg.db, keyType = "ENTREZID")
+
+  gsea_list[[nm]]   <- gsea
+  GSEA_tables[[nm]] <- as.data.frame(gsea_readable)
+}
+
+# filter significant terms
+# Make a new list of GSEA results filtered by significance
+gsea_sig_list <- lapply(gsea_list, function(gsea_obj) {
+  if (is.null(gsea_obj)) return(NULL)
+  df <- gsea_obj@result
+  if (is.null(df) || !nrow(df)) return(NULL)
+  
+  # filter by adjusted p-value < 0.05
+  df_sig <- dplyr::filter(df, p.adjust < 0.05)
+  
+  # replace the result slot with filtered df
+  gsea_obj@result <- df_sig
+  gsea_obj
+})
+
+# 1) Write every GO table to CSV: GO_<name>.csv
+if (length(GSEA_tables)) {
+  for (nm in names(GSEA_tables)) {
+    if (is.null(GSEA_tables[[nm]]) || !nrow(GSEA_tables[[nm]])) next
+    # file <- file.path(out_dir, paste0(fname_prefix_GO, "_GO_", nm, ".csv"))
+    file <- paste0(fname_prefix_csv, "_GSEA_", nm, ".csv")
+    write.csv(GSEA_tables[[nm]], file, row.names = FALSE)
+    message("Wrote: ", file)
+  }
+}
+
+# Helper: save ggplot if it exists
+.save_plot <- function(p, file, w=8, h=10) {
+  if (!is.null(p) && inherits(p, "ggplot")) {
+    ggsave(filename = file, plot = p, width = w, height = h)
+    message("Saved: ", file)
+  }
+}
+
+# Make a dotplot per GSEA result in gsea_list
+plot_gsea_dotplots <- function(gsea_list, fname_prefix, show_k = 10, width=8, height=10) {
+  if (!length(gsea_list)) {
+    message("gsea_list is empty.")
+    return(invisible(NULL))
+  }
+
+  for (nm in names(gsea_list)) {
+    g <- gsea_list[[nm]]
+    # Skip NULL or empty results
+    df <- tryCatch(as.data.frame(g), error = function(e) NULL)
+    if (is.null(df) || !nrow(df)) {
+      message("Skipping ", nm, " (no terms).")
+      next
+    }
+
+    k <- min(show_k, nrow(df))
+
+    # GSEA-friendly dotplot: split by .sign for up/down, order by NES
+    p <- tryCatch(
+      dotplot(g, showCategory = k, split = ".sign", orderBy = "NES") +
+        facet_grid(. ~ .sign),
+      error = function(e) { message("Plot error in ", nm, ": ", e$message); NULL }
+    )
+
+    out_pdf <- paste0(fname_prefix, "_GSEA_", nm, "_dotplot.pdf")
+    .save_plot(p, out_pdf, w = width, h = height)
+  }
+}
+
+plot_gsea_dotplots(gsea_list, fname_prefix = fname_prefix_GO, show_k = 15)
+```
+
+
+
+
+

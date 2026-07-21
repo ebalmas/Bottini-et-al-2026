@@ -1,0 +1,932 @@
+---
+title: "n2 AB04: DEG and cluster ED"
+author: "Elisa Balmas PhD"
+date: "2025-08-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up environment
+
+```{r}
+library(ggplot2)
+library(SingleCellExperiment)
+library(scater)
+library(Seurat)
+library(png)
+library(cowplot)
+library(parallel)
+library(gridExtra)
+library(miloR)
+library(patchwork)
+library(monocle3)
+library(tidyr)
+library(stringr)
+library(grid)
+library(viridis)
+library(viridisLite)
+library(ggthemes)
+library(dplyr)
+library(tidyverse)
+library(ggsignif)
+library(umap)
+library(heatmap3)
+library(plyr)
+library(edgeR)
+library(compareGroups)
+library(dbscan)
+library(MAST)
+library(geosphere)
+library(RColorBrewer)
+library(Seurat)
+library(htmlwidgets)
+library(Matrix)
+library(tidyseurat)
+library(SeuratWrappers)
+library(scMAGeCK)
+library(readxl)
+library(rCASC)
+library(deepToolsUtils)
+library(R.utils)
+library(plotly)
+
+
+library(ggplot2); library(reshape2); theme_set(theme_bw(26) + theme(panel.grid.major = element_blank(), 
+                                                                    panel.grid.minor = element_blank()) +
+                                                 theme(legend.key = element_blank()))
+update_geom_defaults("point", aes(size = 4))
+
+#setwd("/home/ebalmas/scpHUB/projects/H001AS7_iKDseq_10X_4tp_monocle/analysis_EB")
+
+# Session options
+options(stringsAsFactors = FALSE)
+set.seed(12345)
+
+# Set up the ggplot default params
+theme_set(theme_bw(12) + 
+          theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(),
+                plot.title = element_text(size=15, face="bold", margin = margin(10,0,10,0)),
+                axis.text.x = element_text(angle=45, hjust = 1)))
+
+
+# Set up filename prefixes and output folders with the data
+
+dir.create(file.path("Output","Milo"))#create forders MONOCLE
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d")))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "R_objects"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "dotplots"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "dotplots","single"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "stat"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "csv"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "UMAP"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "mosaic"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "heatmap"))
+dir.create(file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "GO"))
+
+
+#set up forder path MONOCLE
+fname_prefix_R <- file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "R_objects", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot <- file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "dotplots", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot_single <- file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "dotplots", "single", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_csv<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "csv", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_stat<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "stat", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_UMAP<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "UMAP", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_mosaic<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "mosaic", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_heatmap<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "heatmap", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_GO<-file.path("Output","Milo", format(Sys.Date(), "%y%m%d"), "GO", 
+                               format(Sys.Date(), "%y%m%d"))
+
+fname_prefix_scratch="scratch/"
+
+
+okabe_pal=c("#E69F00","#56B4E9","#009E73","#f0E442","#0072B2","#D55E00","#CC79A7","#000000")
+
+
+pal <- c("#000000","#004949","#009292","#ff6db6","#ffb6db",
+         "#490092","#006ddb","#b66dff","#6db6ff","#b6dbff",
+         "#920000","#924900","#db6d00","#24ff24","#ffff6d")
+```
+
+########load data
+
+```{r}
+#load(paste0(getwd(),"/scratch/seurat_monocle_AB04.RData")) #it was 251124_monocle_seurat_cds_clustered_FINAL.RData
+load(paste0(getwd(),"/scratch/monocle_seurat_cds_lable_prediction_annotations.RData")) #it was 251124_monocle_seurat_cds_clustered_FINAL.RData
+
+#cl_pal=c("#000000","#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+
+cl_pal=c("#000000","#E69F00", "#009E73", "#CC79A7", "#D55E00", "#f0E442")
+
+cluster_tab=data.frame(monocle_cluster=c("1","2","3","4","5","6"),
+                       cluster_color=cl_pal)
+
+cluster_tab$cluster_name=c("Undifferentiated","Neurectoderm","NANOGhi-TGFbhi","NANOGhi-TGFblo","ZIC1+","DPPA5+")
+cluster_tab$cluster_name_short=c("Undiff","Neuro","TGFbhi","TGFblo","ZIC1+","DPPA5+")
+
+
+#palettes for clusters on other datasets
+# 5-cluster palette (colors NOT in cl_pal6) ####from iPS2seq
+cl_pal5 <- c("#94FFB5", "#56B4E9", "#999999", "#332288", "#117733")
+
+# 4-cluster palette (again distinct from both cl_pal6 and cl_pal5) ####from B8 dataset
+cl_pal4 <- c("#88CCEE", "#CC6677", "#DDCC77", "#44AA99")
+
+cell_type_levels=c("Undifferentiated","Neurectoderm","NANOGhi-TGFbhi","NANOGhi-TGFblo","ZIC1+","DPPA5+")
+cell_type_short_levels=c("Undiff","Neuro","TGFbhi","TGFblo","ZIC1+","DPPA5+")
+```
+
+#####convert Seurat to Milo
+
+```{r}
+rownames(meta) <- meta$cell_id
+seurat_AB04 <- AddMetaData(seurat_AB04, metadata = meta)
+
+## keep only the conditions you care about
+seurat_sub <- subset(
+  seurat_AB04,
+  subset = media %in% c("E8", "E6_FGF") & 
+           type   %in% c("WT", "NANOG_OVER")
+)
+
+## convert to SCE and Milo
+sce  <- as.SingleCellExperiment(seurat_sub)
+milo <- Milo(sce)
+
+set.seed(1)
+milo <- buildGraph(milo, k = 30, d = 30)
+milo <- makeNhoods(milo, prop = 0.1, k = 30, d = 30, refined = TRUE)
+plotNhoodSizeHist(milo)
+
+## count cells per sample
+milo <- countCells(
+  milo,
+  meta.data = data.frame(colData(milo)),
+  sample    = "sample_id"
+)
+
+head(nhoodCounts(milo))
+
+#create design table
+design_df <- data.frame(colData(milo))[, c("sample_id","samp","media", "type", "replicate")]
+design_df <- distinct(design_df)
+rownames(design_df) <- design_df$sample_id
+
+design_df$medium <- factor(design_df$media, levels = c("E8", "E6_FGF"))
+design_df$type   <- factor(design_df$type,   levels = c("WT", "NANOG_OVER"))
+
+milo <- calcNhoodDistance(milo, d = 30)
+
+da_med <- testNhoods(
+  milo,
+  design   = ~ type + media,
+  design.df = design_df
+)
+
+da_med <- annotateNhoods(milo, da_med, coldata_col = "monocle_clusters")
+
+ggplot(da_med, aes(logFC, -log10(SpatialFDR))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", colour = "red") +
+  labs(
+    title = "DA: medium effect (E6_FGF vs E8, controlling for type)",
+    x = "log2 Fold Change (E6_FGF / E8)",
+    y = "-log10 SpatialFDR"
+  )
+
+## Four conditions: WT_E8, WT_E6_FGF, NANOG_OVER_E8, NANOG_OVER_E6_FGF
+design_df$condition <- interaction(design_df$type, design_df$medium, sep = "_")
+
+## make sure the control is the reference level
+design_df$condition <- droplevels(design_df$condition)
+design_df$condition <- relevel(design_df$condition, ref = "WT_E8")
+
+table(design_df$condition)
+# WT_E8, WT_E6_FGF, NANOG_OVER_E8, NANOG_OVER_E6_FGF
+
+## Medium effect in WT only: WT_E6_FGF vs WT_E8
+da_WT_med <- testNhoods(
+  milo,
+  design        = ~ 0 + condition,
+  design.df     = design_df,
+  model.contrasts = c("conditionWT_E6_FGF - conditionWT_E8")
+)
+da_WT_med <- annotateNhoods(milo, da_WT_med, coldata_col = "monocle_clusters")
+
+## Effect of NANOG_OVER in E8: NANOG_OVER_E8 vs WT_E8
+da_NO_E8 <- testNhoods(
+  milo,
+  design        = ~ 0 + condition,
+  design.df     = design_df,
+  model.contrasts = c("conditionNANOG_OVER_E8 - conditionWT_E8")
+)
+da_NO_E8 <- annotateNhoods(milo, da_NO_E8, coldata_col = "monocle_clusters")
+
+
+## Effect of NANOG_OVER in E6_FGF: NANOG_OVER_E6_FGF vs WT_E8
+da_NO_E6 <- testNhoods(
+  milo,
+  design        = ~ 0 + condition,
+  design.df     = design_df,
+  model.contrasts = c("conditionNANOG_OVER_E6_FGF - conditionWT_E8")
+)
+da_NO_E6 <- annotateNhoods(milo, da_NO_E6, coldata_col = "monocle_clusters")
+
+beeswarm_WT_med <- plotDAbeeswarm(da_WT_med, group.by = "monocle_clusters", alpha = 0.1)
+cluster_tab$monocle_clusters=cluster_tab$monocle_cluster
+beeswarm_df_WT  <- as.data.frame(beeswarm_WT_med$data) %>%
+  right_join(cluster_tab, by = "monocle_clusters")
+
+beeswarm_NO_E8_vsWT <- plotDAbeeswarm(da_NO_E8, group.by = "monocle_clusters", alpha = 0.1)
+beeswarm_NO_E8_vsWT  <- as.data.frame(beeswarm_NO_E8_vsWT$data) %>%
+  right_join(cluster_tab, by = "monocle_clusters")
+beeswarm_NO_E6_vsWT <- plotDAbeeswarm(da_NO_E6, group.by = "monocle_clusters", alpha = 0.1)
+beeswarm_NO_E6_vsWT  <- as.data.frame(beeswarm_NO_E6_vsWT$data) %>%
+  right_join(cluster_tab, by = "monocle_clusters")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_NANOG_WT_inE8.csv")
+write.csv(beeswarm_NO_E8_vsWT, stat_filename, quote = F, row.names = T, sep=",")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_NANOG_E6_vs_WT.csv")
+write.csv(beeswarm_NO_E6_vsWT, stat_filename, quote = F, row.names = T, sep=",")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_WT.csv")
+write.csv(beeswarm_df_WT, stat_filename, quote = F, row.names = T, sep=",")
+
+
+ggplot(
+  beeswarm_df_WT,
+  #aes(x = monocle_clusters,
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = logFC,
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels)
+)) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "WT: E6_FGF vs WT E8",
+    x = "",
+    y = "log2 Fold Change (WT_E6_FGF / WT_E8)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_milo_WT.pdf"),
+     width = 8, height = 5)
+
+ggplot(
+  beeswarm_NO_E8_vsWT,
+  #aes(x = monocle_clusters,
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = logFC,
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "NANON over in E8 vs WT E8",
+    x = "",
+    y = "log2 Fold Change (NO_E8 / WT_E8)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_milo_NANOG_WT_inE8.pdf"),
+     width = 8, height = 5)
+
+ggplot(
+  beeswarm_NO_E6_vsWT,
+  #aes(x = monocle_clusters,
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = logFC,
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "NANOG over in E6 FGF vs WT E8",
+    x = "",
+    y = "log2 Fold Change (NO_E6_FGF / WT_E8)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_milo_NANOG_E6_vs_WT.pdf"),
+     width = 8, height = 5)
+
+######################
+####plots of FDR
+######################
+ggplot(
+  beeswarm_df_WT,
+  #aes(x = monocle_clusters,
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = log10(SpatialFDR),
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "WT: E6_FGF vs WT E8",
+    x = "",
+    y = "log10 FDR"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_SIG_milo_WT.pdf"),
+     width = 8, height = 5)
+
+ggplot(
+  beeswarm_NO_E8_vsWT,
+  #aes(x = monocle_clusters,
+ aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = log10(SpatialFDR),
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "NANON over in E8 vs WT E8",
+    x = "",
+    y = "log10 FDR"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_SIG_milo_NANOG_WT_inE8.pdf"),
+     width = 8, height = 5)
+
+ggplot(
+  beeswarm_NO_E6_vsWT,
+  #aes(x = monocle_clusters,
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels),
+      y = log10(SpatialFDR),
+      #fill = monocle_clusters)
+      fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  theme_classic(base_size = 14) +
+  geom_hline(yintercept = 2,  linetype = "dashed") +
+  geom_hline(yintercept = -2, linetype = "dashed") +
+  labs(
+    title = "NANOG over in E6 FGF vs WT E8",
+    x = "",
+    y = "log10 FDR"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(name = "Clusters",values = cluster_tab$cluster_color)
+
+ggsave(filename = paste0(fname_prefix_dotplot, "_", "violin_distribution_SIGN_milo_NANOG_E6_vs_WT.pdf"),
+     width = 8, height = 5)
+
+
+
+
+```
+
+####make summary statistics for Milo
+#WT
+
+```{r}
+library(dplyr)
+
+alpha <- 0.05
+cluster_col <- "monocle_clusters"
+da_results=beeswarm_df_WT
+# Prep
+df <- da_results %>%
+  filter(!is.na(.data[[cluster_col]])) %>%
+  mutate(
+    cluster = .data[[cluster_col]],
+    is_sig  = !is.na(SpatialFDR) & SpatialFDR < alpha
+  )
+
+# Core summary
+cluster_summary <- df %>%
+  group_by(cluster) %>%
+  summarise(
+    n_nhoods         = n(),
+    n_sig            = sum(is_sig, na.rm = TRUE),
+    frac_sig         = ifelse(n_nhoods > 0, n_sig / n_nhoods, NA_real_),
+    min_SpatialFDR   = suppressWarnings(min(SpatialFDR, na.rm = TRUE)),
+    mean_logFC       = mean(logFC, na.rm = TRUE),
+    median_logFC     = median(logFC, na.rm = TRUE),
+    mean_logFC_sig   = if (any(is_sig)) mean(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    median_logFC_sig = if (any(is_sig)) median(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    prop_pos_sig     = if (any(is_sig)) mean(logFC[is_sig] > 0, na.rm = TRUE) else NA_real_,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(frac_sig), desc(abs(median_logFC_sig)))
+
+# Optional: include tested level if 'coef' exists in da_results
+if ("coef" %in% names(df)) {
+  coef_lookup <- df %>%
+    group_by(cluster) %>%
+    summarise(tested_level = dplyr::first(.data[["coef"]]), .groups = "drop")
+  cluster_summary <- cluster_summary %>% left_join(coef_lookup, by = "cluster") %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ paste0("enriched in ", tested_level),
+        median_logFC_sig < 0 ~ paste0("depleted in ", tested_level),
+        TRUE ~ NA_character_
+      )
+    )
+} else {
+  # Fallback labels without coef
+  cluster_summary <- cluster_summary %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ "enriched (positive logFC)",
+        median_logFC_sig < 0 ~ "depleted (negative logFC)",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+# Save & view
+cluster_summary_WT=cluster_summary
+cluster_summary_WT=cluster_summary_WT%>%right_join(cluster_tab,by=c("cluster"="monocle_clusters"))
+cluster_summary_WT$sig=ifelse(cluster_summary_WT$median_logFC_sig>0.5&cluster_summary_WT$frac_sig>0.5|cluster_summary_WT$median_logFC_sig<0.5*-1&cluster_summary_WT$frac_sig>0.4,"yes","no")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_summary_WT.csv")
+write.csv(cluster_summary_WT, stat_filename, quote = F, row.names = T, sep=",")
+
+print(cluster_summary_WT)
+message("Saved: ", normalizePath("milo_cluster_summary_WT.csv"))
+```
+####make summary statistics for Milo
+#NANOG_WT_inE8
+
+```{r}
+library(dplyr)
+
+alpha <- 0.05
+cluster_col <- "monocle_clusters"
+da_results=beeswarm_NO_E8_vsWT
+# Prep
+df <- da_results %>%
+  filter(!is.na(.data[[cluster_col]])) %>%
+  mutate(
+    cluster = .data[[cluster_col]],
+    is_sig  = !is.na(SpatialFDR) & SpatialFDR < alpha
+  )
+
+# Core summary
+cluster_summary <- df %>%
+  group_by(cluster) %>%
+  summarise(
+    n_nhoods         = n(),
+    n_sig            = sum(is_sig, na.rm = TRUE),
+    frac_sig         = ifelse(n_nhoods > 0, n_sig / n_nhoods, NA_real_),
+    min_SpatialFDR   = suppressWarnings(min(SpatialFDR, na.rm = TRUE)),
+    mean_logFC       = mean(logFC, na.rm = TRUE),
+    median_logFC     = median(logFC, na.rm = TRUE),
+    mean_logFC_sig   = if (any(is_sig)) mean(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    median_logFC_sig = if (any(is_sig)) median(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    prop_pos_sig     = if (any(is_sig)) mean(logFC[is_sig] > 0, na.rm = TRUE) else NA_real_,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(frac_sig), desc(abs(median_logFC_sig)))
+
+# Optional: include tested level if 'coef' exists in da_results
+if ("coef" %in% names(df)) {
+  coef_lookup <- df %>%
+    group_by(cluster) %>%
+    summarise(tested_level = dplyr::first(.data[["coef"]]), .groups = "drop")
+  cluster_summary <- cluster_summary %>% left_join(coef_lookup, by = "cluster") %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ paste0("enriched in ", tested_level),
+        median_logFC_sig < 0 ~ paste0("depleted in ", tested_level),
+        TRUE ~ NA_character_
+      )
+    )
+} else {
+  # Fallback labels without coef
+  cluster_summary <- cluster_summary %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ "enriched (positive logFC)",
+        median_logFC_sig < 0 ~ "depleted (negative logFC)",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+
+# Save & view
+cluster_summary_NO_E8_vsWT=cluster_summary
+cluster_summary_NO_E8_vsWT=cluster_summary_NO_E8_vsWT%>%right_join(cluster_tab,by=c("cluster"="monocle_clusters"))
+cluster_summary_NO_E8_vsWT$sig=ifelse(cluster_summary_NO_E8_vsWT$median_logFC_sig>0.5&cluster_summary_NO_E8_vsWT$frac_sig>0.5|cluster_summary_NO_E8_vsWT$median_logFC_sig<0.5*-1&cluster_summary_NO_E8_vsWT$frac_sig>0.4,"yes","no")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_summary_NANOG_WT_inE8.csv")
+write.csv(cluster_summary_NO_E8_vsWT, stat_filename, quote = F, row.names = T, sep=",")
+
+print(cluster_summary_NO_E8_vsWT)
+message("Saved: ", normalizePath("milo_cluster_summary_NANOG_WT_inE8.csv"))
+```
+####make summary statistics for Milo
+#NANOG_E6_vs_WT
+
+```{r}
+library(dplyr)
+
+alpha <- 0.05
+cluster_col <- "monocle_clusters"
+da_results=beeswarm_NO_E6_vsWT
+# Prep
+df <- da_results %>%
+  filter(!is.na(.data[[cluster_col]])) %>%
+  mutate(
+    cluster = .data[[cluster_col]],
+    is_sig  = !is.na(SpatialFDR) & SpatialFDR < alpha
+  )
+
+# Core summary
+cluster_summary <- df %>%
+  group_by(cluster) %>%
+  summarise(
+    n_nhoods         = n(),
+    n_sig            = sum(is_sig, na.rm = TRUE),
+    frac_sig         = ifelse(n_nhoods > 0, n_sig / n_nhoods, NA_real_),
+    min_SpatialFDR   = suppressWarnings(min(SpatialFDR, na.rm = TRUE)),
+    mean_logFC       = mean(logFC, na.rm = TRUE),
+    median_logFC     = median(logFC, na.rm = TRUE),
+    mean_logFC_sig   = if (any(is_sig)) mean(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    median_logFC_sig = if (any(is_sig)) median(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    prop_pos_sig     = if (any(is_sig)) mean(logFC[is_sig] > 0, na.rm = TRUE) else NA_real_,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(frac_sig), desc(abs(median_logFC_sig)))
+
+# Optional: include tested level if 'coef' exists in da_results
+if ("coef" %in% names(df)) {
+  coef_lookup <- df %>%
+    group_by(cluster) %>%
+    summarise(tested_level = dplyr::first(.data[["coef"]]), .groups = "drop")
+  cluster_summary <- cluster_summary %>% left_join(coef_lookup, by = "cluster") %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ paste0("enriched in ", tested_level),
+        median_logFC_sig < 0 ~ paste0("depleted in ", tested_level),
+        TRUE ~ NA_character_
+      )
+    )
+} else {
+  # Fallback labels without coef
+  cluster_summary <- cluster_summary %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ "enriched (positive logFC)",
+        median_logFC_sig < 0 ~ "depleted (negative logFC)",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+
+# Save & view
+cluster_summary_NO_E6_vsWT=cluster_summary
+cluster_summary_NO_E6_vsWT=cluster_summary_NO_E6_vsWT%>%right_join(cluster_tab,by=c("cluster"="monocle_clusters"))
+cluster_summary_NO_E6_vsWT$sig=ifelse(cluster_summary_NO_E6_vsWT$median_logFC_sig>0.5&cluster_summary_NO_E6_vsWT$frac_sig>0.5|cluster_summary_NO_E6_vsWT$median_logFC_sig<0.5*-1&cluster_summary_NO_E6_vsWT$frac_sig>0.4,"yes","no")
+
+stat_filename = paste0(fname_prefix_stat, "_milo_cluster_summary_NANOG_E6_vs_WT.csv")
+write.csv(cluster_summary_NO_E6_vsWT, stat_filename, quote = F, row.names = T, sep=",")
+
+print(cluster_summary_NO_E6_vsWT)
+message("Saved: ", normalizePath("milo_cluster_summary_NANOG_E6_vs_WT.csv"))
+```
+
+############################################################
+## MILO: NANOG_OVER only
+## Control = NANOG_OVER_E8  (your “B8”)
+## Test    = NANOG_OVER_E6_FGF vs NANOG_OVER_E8
+############################################################
+
+```{r}
+## ---------------------------------------------------------
+## 1) Subset Seurat: NANOG_OVER only
+## ---------------------------------------------------------
+seurat_NO <- subset(
+  seurat_AB04,
+  subset = type == "NANOG_OVER" & media %in% c("E8", "E6_FGF")
+)
+
+cat("Cells kept:", ncol(seurat_NO), "\n")
+print(table(seurat_NO$media))
+print(table(seurat_NO$type))
+
+## ---------------------------------------------------------
+## 2) Convert to Milo
+## ---------------------------------------------------------
+sce_NO  <- as.SingleCellExperiment(seurat_NO)
+milo_NO <- Milo(sce_NO)
+
+set.seed(1)
+milo_NO <- buildGraph(milo_NO, k = 30, d = 30)
+milo_NO <- makeNhoods(
+  milo_NO,
+  prop = 0.1,
+  k = 30,
+  d = 30,
+  refined = TRUE
+)
+
+plotNhoodSizeHist(milo_NO)
+
+## ---------------------------------------------------------
+## 3) Count cells per sample
+## ---------------------------------------------------------
+milo_NO <- countCells(
+  milo_NO,
+  meta.data = data.frame(colData(milo_NO)),
+  sample    = "sample_id"
+)
+
+## ---------------------------------------------------------
+## 4) Design table (samples only, NANOG_OVER)
+## ---------------------------------------------------------
+design_NO <- data.frame(colData(milo_NO))[, 
+  c("sample_id", "samp", "media", "replicate")
+]
+design_NO <- distinct(design_NO)
+rownames(design_NO) <- design_NO$sample_id
+
+## E8 as reference
+design_NO$medium <- factor(design_NO$media, levels = c("E8", "E6_FGF"))
+
+print(table(design_NO$medium))
+
+## ---------------------------------------------------------
+## 5) DA test: E6_FGF vs E8
+## ---------------------------------------------------------
+milo_NO <- calcNhoodDistance(milo_NO, d = 30)
+
+da_NO_med <- testNhoods(
+  milo_NO,
+  design    = ~ medium,
+  design.df = design_NO
+)
+
+da_NO_med <- annotateNhoods(
+  milo_NO,
+  da_NO_med,
+  coldata_col = "monocle_clusters"
+)
+
+## Save full DA table
+write.csv(
+  da_NO_med,
+  paste0(fname_prefix_csv, "_milo_DA_NANOG_OVER_E6_FGF_vs_E8.csv"),
+  quote = FALSE
+)
+
+## ---------------------------------------------------------
+## 6) Volcano plot
+## ---------------------------------------------------------
+p_volcano <- ggplot(da_NO_med, aes(logFC, -log10(SpatialFDR))) +
+  geom_point(alpha = 0.8) +
+  geom_hline(
+    yintercept = -log10(0.05),
+    linetype = "dashed",
+    colour = "red"
+  ) +
+  labs(
+    title = "NANOG_OVER: E6_FGF vs E8",
+    x = "log2 Fold Change (E6_FGF / E8)",
+    y = "-log10 SpatialFDR"
+  ) +
+  theme_classic(base_size = 14)
+
+print(p_volcano)
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_volcano_NANOG_OVER_E6_FGF_vs_E8.pdf"),
+  p_volcano,
+  width = 6,
+  height = 4
+)
+
+## ---------------------------------------------------------
+## 7) Beeswarm + cluster colors
+## ---------------------------------------------------------
+beeswarm_NO <- plotDAbeeswarm(
+  da_NO_med,
+  group.by = "monocle_clusters",
+  alpha = 0.1
+)
+
+beeswarm_NO_df <- as.data.frame(beeswarm_NO$data) %>%
+  right_join(cluster_tab, by = "monocle_clusters")
+
+write.csv(
+  beeswarm_NO_df,
+  paste0(fname_prefix_stat, "_milo_cluster_NANOG_OVER_E6_vs_E8.csv"),
+  quote = FALSE
+)
+
+## ---------------------------------------------------------
+## 8) Violin plot — logFC
+## ---------------------------------------------------------
+
+p_logFC <- ggplot(
+  data=subset(beeswarm_NO_df, beeswarm_NO_df$logFC!=0),
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels), logFC, fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed") +
+  scale_fill_manual(name = "Clusters",values = c("#009E73", "#CC79A7", "#D55E00", "#f0E442")) +
+  labs(
+    title = "NANOG_OVER: E6_FGF vs E8",
+    x = "",
+    y = "log2 Fold Change"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_logFC)
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_violin_logFC_NANOG_OVER_E6_FGF_vs_E8.pdf"),
+  p_logFC,
+  width = 8,
+  height = 5
+)
+
+## ---------------------------------------------------------
+## 9) Violin plot — log10 SpatialFDR
+## ---------------------------------------------------------
+p_FDR <- ggplot(
+  data=subset(beeswarm_NO_df, beeswarm_NO_df$logFC!=0),
+  aes(x = factor(cluster_name_short, levels = cell_type_short_levels), log10(SpatialFDR), fill = factor(cluster_name, levels = cell_type_levels))
+) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.7) +
+  scale_fill_manual(name = "Clusters",values = c("#009E73", "#CC79A7", "#D55E00", "#f0E442")) +
+  labs(
+    title = "NANOG_OVER: E6_FGF vs E8",
+    x = "",
+    y = "log10 SpatialFDR"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_FDR)
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_violin_log10FDR_NANOG_OVER_E6_FGF_vs_E8.pdf"),
+  p_FDR,
+  width = 8,
+  height = 5
+)
+```
+#### make summary statistics for Milo
+# NANOG_OVER_E6_vs_E8
+
+```{r}
+alpha <- 0.05
+cluster_col <- "monocle_clusters"
+da_results  <- beeswarm_NO_df
+
+# -------------------------
+# Prep
+# -------------------------
+df <- da_results %>%
+  filter(!is.na(.data[[cluster_col]])) %>%
+  mutate(
+    cluster = .data[[cluster_col]],
+    is_sig  = !is.na(SpatialFDR) & SpatialFDR < alpha
+  )
+
+# -------------------------
+# Core summary
+# -------------------------
+cluster_summary <- df %>%
+  group_by(cluster) %>%
+  summarise(
+    n_nhoods         = n(),
+    n_sig            = sum(is_sig, na.rm = TRUE),
+    frac_sig         = ifelse(n_nhoods > 0, n_sig / n_nhoods, NA_real_),
+    min_SpatialFDR   = suppressWarnings(min(SpatialFDR, na.rm = TRUE)),
+    mean_logFC       = mean(logFC, na.rm = TRUE),
+    median_logFC     = median(logFC, na.rm = TRUE),
+    mean_logFC_sig   = if (any(is_sig)) mean(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    median_logFC_sig = if (any(is_sig)) median(logFC[is_sig], na.rm = TRUE) else NA_real_,
+    prop_pos_sig     = if (any(is_sig)) mean(logFC[is_sig] > 0, na.rm = TRUE) else NA_real_,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(frac_sig), desc(abs(median_logFC_sig)))
+
+# -------------------------
+# Optional: direction labels
+# -------------------------
+if ("coef" %in% names(df)) {
+
+  coef_lookup <- df %>%
+    group_by(cluster) %>%
+    summarise(
+      tested_level = dplyr::first(.data[["coef"]]),
+      .groups = "drop"
+    )
+
+  cluster_summary <- cluster_summary %>%
+    left_join(coef_lookup, by = "cluster") %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ paste0("enriched in ", tested_level),
+        median_logFC_sig < 0 ~ paste0("depleted in ", tested_level),
+        TRUE ~ NA_character_
+      )
+    )
+
+} else {
+
+  cluster_summary <- cluster_summary %>%
+    mutate(
+      direction_label = dplyr::case_when(
+        is.na(median_logFC_sig) ~ NA_character_,
+        median_logFC_sig > 0 ~ "enriched in E6_FGF",
+        median_logFC_sig < 0 ~ "enriched in E8",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+# -------------------------
+# Join cluster colors + significance flag (your heuristic)
+# -------------------------
+cluster_summary_NO_E6_vs_E8 <- cluster_summary %>%
+  right_join(cluster_tab, by = c("cluster" = "monocle_clusters"))
+
+cluster_summary_NO_E6_vs_E8$sig <- ifelse(
+  (cluster_summary_NO_E6_vs_E8$median_logFC_sig >  0.5 &
+   cluster_summary_NO_E6_vs_E8$frac_sig > 0.5) |
+  (cluster_summary_NO_E6_vs_E8$median_logFC_sig < -0.5 &
+   cluster_summary_NO_E6_vs_E8$frac_sig > 0.4),
+  "yes", "no"
+)
+
+# -------------------------
+# Save & inspect
+# -------------------------
+stat_filename <- paste0(
+  fname_prefix_stat,
+  "_milo_cluster_summary_NANOG_OVER_E6_vs_E8.csv"
+)
+
+write.csv(
+  cluster_summary_NO_E6_vs_E8,
+  stat_filename,
+  quote = FALSE,
+  row.names = TRUE,
+  sep = ","
+)
+
+print(cluster_summary_NO_E6_vs_E8)
+message("Saved: ", normalizePath(stat_filename))
+```
+
+
+
+
+
+
