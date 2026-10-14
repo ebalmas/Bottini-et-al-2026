@@ -1,0 +1,1934 @@
+---
+title: "n2 AB015: DEG and cluster ED"
+author: "Elisa Balmas PhD"
+date: "2025-08-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up environment
+
+```{r}
+library(EnhancedVolcano)
+library(monocle3)
+library(tidyr)
+library(stringr)
+library(grid)
+library(viridis)
+library(viridisLite)
+library(ggthemes)
+library(dplyr)
+library(tidyverse)
+library(ggsignif)
+library(umap)
+library(heatmap3)
+library(plyr)
+library(edgeR)
+library(compareGroups)
+library(dbscan)
+library(MAST)
+library(geosphere)
+library(RColorBrewer)
+library(Seurat)
+library(htmlwidgets)
+library(Matrix)
+library(tidyseurat)
+library(SeuratWrappers)
+library(scMAGeCK)
+library(readxl)
+library(rCASC)
+library(deepToolsUtils)
+library(R.utils)
+library(plotly)
+
+
+library(ggplot2); library(reshape2); theme_set(theme_bw(26) + theme(panel.grid.major = element_blank(), 
+                                                                    panel.grid.minor = element_blank()) +
+                                                 theme(legend.key = element_blank()))
+update_geom_defaults("point", aes(size = 4))
+
+#setwd("/home/ebalmas/scpHUB/projects/H001AS7_iKDseq_10X_4tp_monocle/analysis_EB")
+
+# Session options
+options(stringsAsFactors = FALSE)
+set.seed(12345)
+
+# Set up the ggplot default params
+theme_set(theme_bw(12) + 
+          theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(),
+                plot.title = element_text(size=15, face="bold", margin = margin(10,0,10,0)),
+                axis.text.x = element_text(angle=45, hjust = 1)))
+
+
+# Set up filename prefixes and output folders with the data
+
+dir.create(file.path("Output","DEG"))#create forders MONOCLE
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d")))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "R_objects"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "dotplots"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "dotplots","single"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "stat"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "csv"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "UMAP"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "mosaic"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "heatmap"))
+dir.create(file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "GO"))
+
+
+#set up forder path MONOCLE
+fname_prefix_R <- file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "R_objects", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot <- file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "dotplots", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot_single <- file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "dotplots", "single", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_csv<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "csv", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_stat<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "stat", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_UMAP<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "UMAP", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_mosaic<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "mosaic", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_heatmap<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "heatmap", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_GO<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "GO", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_violin<-file.path("Output","DEG", format(Sys.Date(), "%y%m%d"), "violin", 
+                               format(Sys.Date(), "%y%m%d"))
+
+fname_prefix_scratch="scratch/"
+
+
+okabe_pal=c("#E69F00","#56B4E9","#009E73","#f0E442","#0072B2","#D55E00","#CC79A7","#000000")
+
+
+pal <- c("#000000","#004949","#009292","#ff6db6","#ffb6db",
+         "#490092","#006ddb","#b66dff","#6db6ff","#b6dbff",
+         "#920000","#924900","#db6d00","#24ff24","#ffff6d")
+
+library(pals)
+cols_all <- pals::alphabet(20)#extended colorblind friendly palette
+# amethyst      blue   caramel    damson     ebony    forest     green  honeydew      iron      jade     khaki      lime   magenta      navy    orange      pink 
+#"#F0A0FF" "#0075DC" "#993F00" "#4C005C" "#191919" "#005C31" "#2BCE48" "#FFCC99" "#808080" "#94FFB5" "#8F7C00" "#9DCC00" "#C20088" "#003380" "#FFA405" "#FFA8BB" 
+# quagmire       red       sky turquoise 
+#"#426600" "#FF0010" "#5EF1F2" "#00998F"
+```
+
+########load data
+
+```{r}
+
+#load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINA_AB015L.RData
+load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINAL_AB015.RData
+
+
+
+#cl_pal=c("#000000","#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+
+#cl_pal=c("#000000","#E69F00", "#009E73", "#CC79A7", "#D55E00", "#f0E442")
+
+cl_pal=c("#000000","#24ff24","#CC79A7","#D55E00","#f0E442", "#0072B2","#b6dbff" ,"#ff6db6","#56B4E9", "#009E73","#004949")
+
+
+cluster_tab=data.frame(monocle_cluster=c("1","2","3","4","5","6","7","8","9","10","11"),
+                       cluster_color=cl_pal)
+
+cluster_tab$cluster_name=cluster_tab$monocle_cluster#need to change when defined
+cluster_tab$cluster_name_short=cluster_tab$monocle_cluster#need to change when defined
+
+
+#palettes for clusters on other datasets
+
+okabe_pal=c("#E69F00","#56B4E9","#009E73","#f0E442","#0072B2","#D55E00","#CC79A7","#000000")
+
+# 5-cluster palette (colors NOT in cl_pal6) ####from iPS2seq
+cl_pal5 <- c("#94FFB5", "#56B4E9", "#999999", "#332288", "#117733")
+
+# 4-cluster palette (again distinct from both cl_pal6 and cl_pal5) ####from B8 dataset
+cl_pal4 <- c("#88CCEE", "#CC6677", "#DDCC77", "#44AA99")
+
+#9 cluster palette ####from AB017 dataset
+cl_pal_9=c("#000000","#56B4E9", "#009E73","#004949","#24ff24", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+```
+#### DEFINITIVE CLUSTER ANNOTATION ####
+####cluster annotation
+####colors setup
+
+```{r}
+#### DEFINITIVE CLUSTER ANNOTATION ####
+
+# ============================================================
+# 1. Cluster ID -> long name
+# ============================================================
+
+cluster_labels <- c(
+  "1"  = "Myofibroblasts",
+  "2"  = "Early myocytes",
+  "3"  = "Myogenic progenitors",
+  "4"  = "Slow-twitch myotubes",
+  "5"  = "Pre-myocytes",
+  "6"  = "Non-cycling myoblasts",
+  "7"  = "Late myocytes",
+  "8"  = "Cycling myoblasts",
+  "9"  = "Fusing myotubes",
+  "10" = "Early myotubes",
+  "11" = "Stromal cells"
+)
+
+# ============================================================
+# 2. Cluster ID -> short name
+# ============================================================
+
+cluster_labels_short <- c(
+  "1"  = "MF",
+  "2"  = "eMC",
+  "3"  = "MP",
+  "4"  = "sMT",
+  "5"  = "preMC",
+  "6"  = "ncMB",
+  "7"  = "lMC",
+  "8"  = "cMB",
+  "9"  = "fMT",
+  "10" = "eMT",
+  "11" = "SC"
+)
+
+# ============================================================
+# 3. Biological order from Excel
+# ============================================================
+
+cluster_order_ids <- c(
+  "4", "10", "9", "7", "2", "6",
+  "8", "5", "3", "1", "11"
+)
+
+cluster_order_names <- unname(
+  cluster_labels[cluster_order_ids]
+)
+
+cluster_order_short <- unname(
+  cluster_labels_short[cluster_order_ids]
+)
+
+cluster_labels_ordered <- cluster_labels[
+  cluster_order_ids
+]
+
+# ============================================================
+# 4. Colours: retain association with cluster ID
+# ============================================================
+
+my_colors_cl_nb <- c(
+  "1"  = "#000000",
+  "2"  = "#24ff24",
+  "3"  = "#CC79A7",
+  "4"  = "#D55E00",
+  "5"  = "#F0E442",
+  "6"  = "#0072B2",
+  "7"  = "#b6dbff",
+  "8"  = "#ff6db6",
+  "9"  = "#56B4E9",
+  "10" = "#009E73",
+  "11" = "#004949"
+)
+
+my_colors <- setNames(
+  unname(my_colors_cl_nb[names(cluster_labels)]),
+  unname(cluster_labels)
+)
+
+my_colors_ordered <- my_colors[
+  cluster_order_names
+]
+
+cluster_name_pal <- my_colors
+```
+
+####aggiorna cluster tab
+
+```{r}
+cluster_tab$monocle_cluster <- as.character(cluster_tab$monocle_cluster)
+cluster_tab$cluster_name <- unname(cluster_labels[cluster_tab$monocle_cluster])
+cluster_tab$cluster_name_short <- unname(cluster_labels_short[cluster_tab$monocle_cluster])
+cluster_tab$cluster_color <- unname(my_colors_cl_nb[cluster_tab$monocle_cluster])
+cluster_tab$cluster_name <- factor(cluster_tab$cluster_name,levels = cluster_order_names)
+cluster_tab$cluster_name_short <- factor(cluster_tab$cluster_name_short,levels = cluster_order_short)
+```
+
+#aggiorna meta
+```{r}
+
+meta$time=meta$sample
+meta$time <- dplyr::recode(
+  as.character(meta$time),
+  "GERALTd4"  = "D4/pre",
+  "OPTIOXd4"          = "D4/pre",
+  "WTpre"          = "D4/pre",
+  "LONZApre"          = "D4/pre",
+  "GERALTd7"  = "D7/post",
+  "OPTIOXd7"          = "D7/post",
+  "WTmyod4"          = "D7/post",
+  "LONZApost"          = "D7/post",
+  .default      = as.character(meta$time)
+)
+
+meta$monocle_clusters <- as.character(meta$monocle_clusters)
+meta$cluster_name <- unname(cluster_labels[meta$monocle_clusters])
+meta$cluster_name_short <- unname(cluster_labels_short[meta$monocle_clusters])
+meta$cluster_color <- unname(my_colors_cl_nb[meta$monocle_clusters])
+meta$cluster_name <- factor(meta$cluster_name,levels = cluster_order_names)
+meta$cluster_name_short <- factor(meta$cluster_name_short,levels = cluster_order_short)
+meta$monocle_clusters <- factor(meta$monocle_clusters,levels = cluster_order_ids)
+```
+
+#update cds
+
+```{r}
+stopifnot(
+  all(colnames(cds) %in% rownames(meta))
+)
+
+meta_for_cds <- meta[
+  colnames(cds),
+  ,
+  drop = FALSE
+]
+
+stopifnot(
+  identical(
+    rownames(meta_for_cds),
+    colnames(cds)
+  )
+)
+
+SummarizedExperiment::colData(cds)$monocle_clusters <-meta_for_cds$monocle_clusters
+SummarizedExperiment::colData(cds)$cluster_name <-meta_for_cds$cluster_name
+SummarizedExperiment::colData(cds)$cluster_name_short <-meta_for_cds$cluster_name_short
+SummarizedExperiment::colData(cds)$cluster_color <-meta_for_cds$cluster_color
+```
+
+###update seurat
+```{r}
+stopifnot(
+  all(colnames(seurat_AB015) %in% rownames(meta))
+)
+
+meta_for_seurat <- meta[
+  colnames(seurat_AB015),
+  ,
+  drop = FALSE
+]
+
+stopifnot(
+  identical(
+    rownames(meta_for_seurat),
+    colnames(seurat_AB015)
+  )
+)
+
+seurat_AB015$monocle_clusters <-meta_for_seurat$monocle_clusters
+seurat_AB015$cluster_name <-meta_for_seurat$cluster_name
+seurat_AB015$cluster_name_short <-meta_for_seurat$cluster_name_short
+seurat_AB015$cluster_color <-meta_for_seurat$cluster_color
+
+###check if all ok
+# Nessun cluster senza annotazione
+#stopifnot(!anyNA(meta$cluster_name))
+#stopifnot(!anyNA(meta$cluster_name_short))
+#stopifnot(!anyNA(meta$cluster_color))
+
+#stopifnot(!anyNA(seurat_AB015$cluster_name))
+#stopifnot(!anyNA(SummarizedExperiment::colData(cds)$cluster_name))
+
+# Corrispondenza ID -> nomi
+#unique(meta[c("monocle_clusters","cluster_name","cluster_name_short","cluster_color")]) %>% dplyr::arrange(match(monocle_clusters, cluster_order_ids))
+```
+####save again
+
+```{r}
+Rdata_filename = paste0("/Users/elisabalmaselisabalmas/Documents", "/monocle_seurat_cds_clustered_annotated_corrected_FINAL_AB015.RData")#latest is of 31/07/2026 placed in scratch
+save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,de_stats,gs, gs_NOVO,
+    file = Rdata_filename)
+```
+
+
+###setup score lables
+
+```{r}
+
+score_labels <- c(
+
+  # ===============================
+  # CELL CYCLE / RIBOSOME TONE
+  # ===============================
+
+  cellcycle_s                    = "cell cycle S phase",
+  cellcycle_g2m                  = "cell cycle G2/M",
+  ribosome_tone                  = "ribosome tone",
+
+  # ===============================
+  # FIBER-TYPE / METABOLIC PROGRAMS
+  # ===============================
+
+  fiber_type_I_slow              = "fiber type I slow",
+  fiber_type_IIa_fast            = "fiber type IIa fast",
+  fiber_type_IIx_fast            = "fiber type IIx fast",
+  developmental_embryonic        = "developmental / embryonic",
+  myotube_fusion_active          = "active myotube fusion",
+  sarcomere_core                 = "sarcomere core",
+  nascent_myotube_postfusion     = "nascent post-fusion myotube",
+  calcium_excitation_contraction = "calcium excitation-contraction",
+  oxidative_mitochondrial        = "oxidative mitochondrial",
+  glycolytic_fast                = "glycolytic fast",
+
+  # ===============================
+  # STEM / MYOGENIC LINEAGES
+  # ===============================
+
+  satellite_cell_core            = "satellite cell core",
+  satellite_cell_core_hiPSC      = "satellite cell core hiPSC",
+  myoblast_proliferation_cycle   = "myoblast proliferation cycle",
+  myotube_differentiation_fusion = "myotube differentiation & fusion",
+  myogenic_regulators_axis       = "myogenic regulators axis",
+
+  # ===============================
+  # NMJ / ECM / NICHE
+  # ===============================
+
+  neuromuscular_junction         = "neuromuscular junction",
+  muscle_ecm_basement            = "muscle ECM / basement membrane",
+  fibro_adipogenic_progenitors   = "fibro-adipogenic progenitors",
+  atrophy_stress                 = "atrophy / stress",
+
+  # ===============================
+  # PLURIPOTENCY → MYOGENIC
+  # ===============================
+
+  pluripotency_core              = "pluripotency core",
+  naive_pluripotency             = "naive pluripotency",
+  mesoderm_specification         = "mesoderm specification",
+  early_myogenic_commitment      = "early myogenic commitment",
+  hiPSC_to_mesoderm_transition   = "hiPSC-to-mesoderm transition",
+  oxidative_stress_antioxidant   = "oxidative stress / antioxidant",
+
+  ###novo dataset
+  slow_twitch_myofiber_NOVO =  "slow twitch myofiber",
+  fast_twitch_myofiber_NOVO =  "fast twitch myofiber",
+  skeletal_muscle_fiber_type_independent_NOVO =
+  "skeletal muscle, fiber-type independent",
+genes_not_in_mature_skeletal_muscle_NOVO =
+  "genes not expressed in mature skeletal muscle",
+  glycogen_metabolism_NOVO = "glycogen metabolism",
+  ampk_energy_sensing_NOVO = "AMPK energy sensing",
+  beta2_adrenergic_response_NOVO = "beta2 adrenergic response",
+  insulin_glut4_signaling_NOVO = "insulin / GLUT4 signaling",
+  exercise_training_adaptation_NOVO = "exercise training adaptation",
+  hypoxia_glucose_fatigue_stress_NOVO = "hypoxia / glucose / fatigue / stress",
+  tissue_maturation_3D_vs_monolayer_NOVO = "tissue maturation 3D vs monolayer"
+)
+
+```
+
+####UMAP markers per cluster ###TBD do main and supplementary
+
+```{r}
+all_marker_genes <- c(
+  "MYH7","MYH3","MYOG","TNNI1","SYN2","MYF5","TOP2A","PDGFRA","CCN2"
+)
+
+genes_use <- intersect(all_marker_genes, rowData(cds)$gene_short_name)
+message("Genes found: ", length(genes_use), " / ", length(all_marker_genes))
+
+p <- plot_cells(
+  cds,
+  genes = genes_use,
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE
+) +
+  labs(
+    x     = "UMAP 1",
+    y     = "UMAP 2",
+    title = "Top markers per cluster"
+  ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_top_markers_allclusters.pdf"),
+  plot     = p,
+  width    = 8,
+  height   = 6,
+  units    = "in")
+
+p <- plot_cells(cds,
+  genes = c("TNNI1","SYN2"),
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE) +labs(x     = "UMAP 1",y     = "UMAP 2",title = "" ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_TNNI1_SYN2.pdf"),
+  plot     = p,
+  width    = 5,
+  height   = 2.5,
+  units    = "in")
+
+all_marker_genes <- c("MYH7", "CA3", "MYF5",
+"TOP2A"
+)
+
+genes_use <- intersect(all_marker_genes, rowData(cds)$gene_short_name)
+message("Genes found: ", length(genes_use), " / ", length(all_marker_genes))
+
+p <- plot_cells(
+  cds,
+  genes = genes_use,
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE
+) +
+  labs(
+    x     = "UMAP 1",
+    y     = "UMAP 2",
+    title = "Top markers per cluster"
+  ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_top_markers_part1.pdf"),
+  plot     = p,
+  width    = 4,
+  height   = 4,
+  units    = "in")
+
+all_marker_genes <- c("MYH3",
+"MYOG", "COL3A1",
+"PDGFRA"
+)
+
+genes_use <- intersect(all_marker_genes, rowData(cds)$gene_short_name)
+message("Genes found: ", length(genes_use), " / ", length(all_marker_genes))
+
+p <- plot_cells(
+  cds,
+  genes = genes_use,
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE
+) +
+  labs(
+    x     = "UMAP 1",
+    y     = "UMAP 2",
+    title = "Top markers per cluster"
+  ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_top_markers_part2.pdf"),
+  plot     = p,
+  width    = 4,
+  height   = 4,
+  units    = "in")
+
+
+all_marker_genes <- c(
+  "MYBPH","MYL1",
+"TAGLN",
+"CCN2"
+)
+
+genes_use <- intersect(all_marker_genes, rowData(cds)$gene_short_name)
+message("Genes found: ", length(genes_use), " / ", length(all_marker_genes))
+
+p <- plot_cells(
+  cds,
+  genes = genes_use,
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE
+) +
+  labs(
+    x     = "UMAP 1",
+    y     = "UMAP 2",
+    title = "Top markers per cluster"
+  ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_top_markers_part3.pdf"),
+  plot     = p,
+  width    = 4,
+  height   = 4,
+  units    = "in")
+
+all_marker_genes <- c(
+  "CDKN1C","GNGT1",
+"MMP11",
+"ADIRF"
+)
+
+genes_use <- intersect(all_marker_genes, rowData(cds)$gene_short_name)
+message("Genes found: ", length(genes_use), " / ", length(all_marker_genes))
+
+p <- plot_cells(
+  cds,
+  genes = genes_use,
+  label_cell_groups = FALSE,
+  show_trajectory_graph = FALSE
+) +
+  labs(
+    x     = "UMAP 1",
+    y     = "UMAP 2",
+    title = "Top markers per cluster"
+  ) +
+  scale_color_viridis(option = "E", discrete = FALSE)
+
+print(p)
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP_top_markers_part4.pdf"),
+  plot     = p,
+  width    = 4,
+  height   = 4,
+  units    = "in")
+```
+#####final UMAP plots
+
+```{r}
+##### FINAL UMAP PLOTS #####
+
+# -------------------------------------------------------------------------
+# Stable order and colours for final UMAPs
+# -------------------------------------------------------------------------
+
+meta$cluster_name <- factor(
+  as.character(meta$cluster_name),
+  levels = cluster_order_names
+)
+
+meta$cell_type <- factor(
+  as.character(meta$cell_type),
+  levels = c("WT", "LONZA", "OPTIOX", "GERALT")
+)
+
+meta$timepoint <- factor(
+  as.character(meta$timepoint),
+  levels = c("pre fusion", "D4", "D7", "post fusion")
+)
+
+meta$time <- factor(
+  meta$time,
+  levels = c("D4/pre", "D7/post")
+)
+
+# cluster_name_pal was defined from the new cluster annotations:
+# cluster_name_pal <- my_colors
+
+stopifnot(
+  all(levels(meta$cluster_name) %in% names(cluster_name_pal))
+)
+
+
+# -------------------------------------------------------------------------
+# UMAP - annotated cluster names
+# -------------------------------------------------------------------------
+
+p_umap <- ggplot(
+  meta,
+  aes(x = UMAP_1_monocle, y = UMAP_2_monocle)
+) +
+  geom_point(
+    aes(color = cluster_name),
+    size = 0.8,
+    alpha = 0.7
+  ) +
+  labs(
+    x = "UMAP 1",
+    y = "UMAP 2",
+    title = "Annotated clusters"
+  ) +
+  scale_color_manual(
+    name = "Cluster",
+    values = cluster_name_pal,
+    breaks = cluster_order_names,
+    drop = FALSE
+  ) +
+  theme_classic() +
+  theme(
+    axis.line = element_blank(),
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5
+    )
+  )
+
+p_umap
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_UMAP.pdf"),
+  plot = p_umap,
+  width = 7,
+  height = 5
+)
+
+
+# -------------------------------------------------------------------------
+# UMAP - by cell type and combined time
+# -------------------------------------------------------------------------
+
+p_umap_all <- ggplot(
+  meta,
+  aes(x = UMAP_1_monocle, y = UMAP_2_monocle)) +
+  geom_point(
+    aes(color = cluster_name),
+    size = 0.8,
+    alpha = 0.7) +
+  labs(
+    x = "UMAP 1",
+    y = "UMAP 2",
+    title = "Annotated clusters") +
+  scale_color_manual(
+    name = "Cluster",
+    values = cluster_name_pal,
+    breaks = cluster_order_names,
+    drop = FALSE) +
+  facet_grid(time ~ cell_type) +
+  theme_classic() +
+  theme(axis.line = element_blank(),
+    panel.border = element_rect(colour = "black",
+      fill = NA,
+      linewidth = 0.5))
+
+p_umap_all
+
+ggsave(filename = paste0(
+    fname_prefix_UMAP,
+    "_UMAP_cluster_names_all.pdf"),
+  plot = p_umap_all,
+  width = 10,
+  height = 4)
+
+
+# -------------------------------------------------------------------------
+# UMAP - by cell type
+# -------------------------------------------------------------------------
+
+p_umap_samp <- ggplot(
+  meta,
+  aes(x = UMAP_1_monocle, y = UMAP_2_monocle)) +
+  geom_point(aes(color = cluster_name),
+    size = 0.8,
+    alpha = 0.7) +
+  labs(x = "UMAP 1",
+    y = "UMAP 2",
+    title = "Annotated clusters by condition") +
+  scale_color_manual(name = "Cluster",
+    values = cluster_name_pal,
+    breaks = cluster_order_names,
+    drop = FALSE) +
+  facet_wrap(~ cell_type) +
+  theme_classic() +
+  theme(axis.line = element_blank(),
+    panel.border = element_rect(
+      colour = "black",
+      fill = NA,
+      linewidth = 0.5))
+
+p_umap_samp
+
+ggsave(
+  filename = paste0(
+    fname_prefix_UMAP,
+    "_UMAP_cluster_names_samp.pdf"),
+  plot = p_umap_samp,
+  width = 6,
+  height = 5)
+```
+####dot plots with best markers
+####select markers
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+# Legge la tabella delle annotazioni
+marker_annotation <- read_excel(
+  "scratch/names and markers.xlsx"
+)
+
+# Un gene per riga, mantenendo cluster e ordine biologico dell'Excel
+supporting_markers <- marker_annotation %>%
+  select(
+    Order,
+    Cluster,
+    `Recommended name`,
+    `Best supporting markers`) %>%
+  separate_rows(
+    `Best supporting markers`,
+    sep = "[,;]") %>%
+  mutate(gene_symbol = str_trim(`Best supporting markers`),
+    cluster_id = str_remove(Cluster, "^Cl")) %>%
+  filter(!is.na(gene_symbol),
+    gene_symbol != "") %>%
+  arrange(Order)
+
+supporting_markers %>%
+  select(Order,
+    Cluster,
+    `Recommended name`,
+    gene_symbol)
+
+supporting_marker_ids <- supporting_markers$gene_symbol %>%
+  unique()
+
+# keep only genes present in the cds
+supporting_marker_ids_present <- intersect(
+  supporting_marker_ids,
+  rownames(cds)
+)
+
+```
+####now make the dot plot with the cluster name and the correct order
+
+```{r}
+# Ordine biologico dei nomi corti
+cluster_order_short <- c(
+  "sMT",
+  "eMT",
+  "fMT",
+  "lMC",
+  "eMC",
+  "ncMB",
+  "cMB",
+  "preMC",
+  "MP",
+  "MF",
+  "SC")
+
+# Imposta esplicitamente l'ordine nel cds
+SummarizedExperiment::colData(cds)$cluster_name_short <- factor(as.character(SummarizedExperiment::colData(cds)$cluster_name_short),
+  levels = cluster_order_short)
+
+
+# Crea il grafico senza riordinamento automatico
+p_supporting_markers <- plot_genes_by_group(
+  cds,
+  supporting_marker_ids_present,
+  group_cells_by = "cluster_name_short",
+  ordering_type = "none",
+  max.size = 3
+) +
+  scale_x_discrete(
+    limits = cluster_order_short,
+    drop = FALSE
+  ) +
+  scale_color_viridis_c(option = "E") +
+  labs(
+    x = "Cluster",
+    y = "Best supporting markers",
+    color = "Expression"
+  ) +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+p_supporting_markers
+
+ggsave(
+  filename = paste0(
+    fname_prefix_heatmap,
+    "_best_supporting_markers_heatmap.pdf"
+  ),
+  plot = p_supporting_markers,
+  width = 9,
+  height = 15
+)
+```
+
+####calculate % of cells
+
+```{r}
+#### Calculate % of cells ####
+
+meta_to_use <- meta
+
+# Numero totale di cellule per campione
+total <- meta_to_use %>%
+  dplyr::count(sample, name = "tot")
+
+# Numero di cellule per cluster e campione
+percent_cl <- meta_to_use %>%dplyr::count(
+    monocle_clusters,
+    sample,
+    name = "freq") %>% dplyr::left_join(
+    total,
+    by = "sample") %>% dplyr::mutate(
+    frxn = 100 * freq / tot,
+    monocle_clusters = as.character(monocle_clusters)) %>%dplyr::left_join(
+    cluster_tab %>% dplyr::mutate(
+        monocle_cluster = as.character(monocle_cluster)) %>% dplyr::select(
+        monocle_cluster,
+        cluster_name_short),by = c(
+      "monocle_clusters" = "monocle_cluster")) %>% dplyr::mutate(
+    cluster_name_short = factor(
+      as.character(cluster_name_short),
+      levels = cluster_order_short))
+
+
+# Palette with short names
+cluster_short_pal <- setNames(unname(my_colors_cl_nb[cluster_order_ids]),
+  cluster_order_short)
+ 
+cluster_short_pal
+
+# Sample order in meta
+sample_order <- unique(as.character(meta_to_use$sample))
+
+percent_cl$sample <- factor(
+  as.character(percent_cl$sample),
+  levels = sample_order
+)
+
+
+# Stacked bar plot
+p_percent_cells <- ggplot(percent_cl,
+  aes(x = sample,y = frxn, fill = cluster_name_short)) +
+  geom_col(width = 0.8,
+    position = "stack") +
+  scale_x_discrete(limits = sample_order,
+    drop = FALSE) + scale_fill_manual(values = cluster_short_pal,
+    breaks = cluster_order_short,
+    limits = cluster_order_short,
+    drop = FALSE) +
+  labs(x = NULL,
+    y = "% cells per sample",
+    fill = "Cluster") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,hjust = 1))
+
+p_percent_cells
+
+ggsave(filename = paste0(fname_prefix_mosaic,"_percent_cells_type.pdf"),plot = p_percent_cells, width = 8, height = 5)
+
+```
+
+
+###DEG volcano plots lonza vs GERALT cl4 vs cl9  and cl4 GERALT vs OPTIOX cl7
+
+```{r}
+# Cutoffs
+sig_level <- 0.01
+fc_level  <- log2(2)
+fc_level2 <- -log2(2)
+N <- 20
+
+DEG_4vs9 <- de_stats %>% select(geneID,q_value_4vs9,logFC_4vs9) %>%
+  mutate(
+    regulation = case_when(
+      q_value_4vs9 < sig_level & logFC_4vs9 >= fc_level  ~ "up",
+      q_value_4vs9 < sig_level & logFC_4vs9 <= fc_level2 ~ "down",
+      TRUE ~ "other"
+    ),
+    significant = regulation != "other",
+    log10_q_value = -log10(
+      pmax(q_value_4vs9, .Machine$double.xmin)
+    )
+  )
+
+DEG_4vs7 <- de_stats %>% select(geneID,q_value_4vs7,logFC_4vs7) %>%
+  mutate(
+    regulation = case_when(
+      q_value_4vs7 < sig_level & logFC_4vs7 >= fc_level  ~ "up",
+      q_value_4vs7 < sig_level & logFC_4vs7 <= fc_level2 ~ "down",
+      TRUE ~ "other"
+    ),
+    significant = regulation != "other",
+    log10_q_value = -log10(
+      pmax(q_value_4vs7, .Machine$double.xmin)
+    )
+  )
+
+##calculate top genes
+
+top_genes_4vs9 <- DEG_4vs9 %>%
+  filter(significant) %>%
+  arrange(q_value_4vs9, desc(abs(logFC_4vs9))) %>%
+  slice_head(n = N)
+
+top_genes_4vs7 <- DEG_4vs7 %>%
+  filter(significant) %>%
+  arrange(q_value_4vs7, desc(abs(logFC_4vs7))) %>%
+  slice_head(n = N)
+```
+
+###volcano plot top genes 4vs9
+
+```{r}
+
+volcano_4vs9_top <- ggplot(
+  DEG_4vs9,
+  aes(x = logFC_4vs9, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    ),
+    labels = c(
+      up    = "Higher in GERALT",
+      down  = "Higher in Lonza",
+      other = "Not significant"
+    )
+  ) +
+  geom_text_repel(
+    data = top_genes_4vs9,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT Cl4 versus Lonza Cl9",
+    subtitle = paste0(
+      "Top ", N, " DEGs; adjusted p-value < ", sig_level,
+      " and |log2FC| ≥ ", fc_level
+    ),
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_4vs9_top
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_4vs9_top_DEGs.pdf"),
+  volcano_4vs9_top,
+  width = 9,
+  height = 7
+)
+```
+
+###volcano plot top genes _4vs7
+
+```{r}
+
+volcano_4vs7_top <- ggplot(
+  DEG_4vs7,
+  aes(x = logFC_4vs7, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    ),
+    labels = c(
+      up    = "Higher in GERALT",
+      down  = "Higher in OPTi-OX",
+      other = "Not significant"
+    )
+  ) +
+  geom_text_repel(
+    data = top_genes_4vs7,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT Cl4 versus OPTi-OX Cl7",
+    subtitle = paste0(
+      "Top ", N, " DEGs; adjusted p-value < ", sig_level,
+      " and |log2FC| ≥ ", fc_level
+    ),
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_4vs7_top
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_4vs7_top_DEGs.pdf"),
+  volcano_4vs7_top,
+  width = 9,
+  height = 7
+)
+```
+
+### NOVO signatures in the 4vs9 and 4vs7 comparisons
+
+For each comparison, all genes are shown as a grey background. Only significant
+genes from one `gs_NOVO` signature at a time are coloured and labelled.
+
+```{r}
+
+### NOVO signatures in the 4vs9 and 4vs7 comparisons
+
+# Define the cluster order first
+cluster_order_ids <- names(cluster_labels)[
+  match(cluster_order_names, cluster_labels)
+]
+
+cluster_labels_ordered <- cluster_labels[
+  cluster_order_ids
+]
+
+# Optional alias
+cluster_name_pal <- my_colors
+
+
+# -------------------------------------------------------------------------
+# NOVO gene-to-signature table
+# -------------------------------------------------------------------------
+
+stopifnot(
+  exists("gs_NOVO"),
+  is.list(gs_NOVO),
+  length(gs_NOVO) > 0
+)
+
+gs_gene_table_NOVO <- stack(gs_NOVO) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = as.character(ind)
+  ) %>%
+  distinct()
+
+
+# -------------------------------------------------------------------------
+# Comparisons
+# -------------------------------------------------------------------------
+
+NOVO_comparisons <- list(
+  `4vs9` = list(
+    deg = DEG_4vs9,
+    q_col = "q_value_4vs9",
+    fc_col = "logFC_4vs9",
+    title = "GERALT Cl4 versus Lonza Cl9",
+    comparator = "Lonza Cl9"
+  ),
+  `4vs7` = list(
+    deg = DEG_4vs7,
+    q_col = "q_value_4vs7",
+    fc_col = "logFC_4vs7",
+    title = "GERALT Cl4 versus OPTi-OX Cl7",
+    comparator = "OPTi-OX Cl7"
+  )
+)
+
+
+# -------------------------------------------------------------------------
+# Run both comparisons
+# -------------------------------------------------------------------------
+
+NOVO_results <- list()
+
+for (comparison_name in names(NOVO_comparisons)) {
+
+  # These variables must be defined inside the loop
+  comparison <- NOVO_comparisons[[comparison_name]]
+
+  DEG_current <- comparison$deg
+  q_col <- comparison$q_col
+  fc_col <- comparison$fc_col
+  comparator_label <- comparison$comparator
+  comparison_title <- comparison$title
+
+  # Check required columns
+  required_columns <- c(
+    "geneID",
+    "significant",
+    "regulation",
+    "log10_q_value",
+    q_col,
+    fc_col
+  )
+
+  missing_columns <- setdiff(
+    required_columns,
+    colnames(DEG_current)
+  )
+
+  if (length(missing_columns) > 0) {
+    stop(
+      comparison_name,
+      " is missing these columns: ",
+      paste(missing_columns, collapse = ", ")
+    )
+  }
+
+  # NOVO genes found in the DEG table
+  DEG_NOVO <- DEG_current %>%
+    inner_join(
+      gs_gene_table_NOVO,
+      by = "geneID"
+    ) %>%
+    arrange(
+      signature,
+      .data[[q_col]],
+      desc(abs(.data[[fc_col]]))
+    )
+
+  significant_NOVO <- DEG_NOVO %>%
+    filter(significant %in% TRUE)
+
+  NOVO_summary <- DEG_NOVO %>%
+    group_by(signature) %>%
+    summarise(
+      genes_in_DEG_table = n_distinct(geneID),
+      significant_genes = n_distinct(
+        geneID[significant %in% TRUE]
+      ),
+      higher_in_GERALT_Cl4 = n_distinct(
+        geneID[
+          significant %in% TRUE &
+            regulation == "up"
+        ]
+      ),
+      higher_in_comparator = n_distinct(
+        geneID[
+          significant %in% TRUE &
+            regulation == "down"
+        ]
+      ),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      comparison = comparison_name,
+      comparator = comparator_label,
+      .before = 1
+    )
+
+  print(NOVO_summary)
+  print(significant_NOVO)
+
+  write.csv(
+    DEG_NOVO,
+    paste0(
+      fname_prefix_csv,
+      "_",
+      comparison_name,
+      "_NOVO_all_genes.csv"
+    ),
+    row.names = FALSE
+  )
+
+  write.csv(
+    significant_NOVO,
+    paste0(
+      fname_prefix_csv,
+      "_",
+      comparison_name,
+      "_NOVO_significant_genes.csv"
+    ),
+    row.names = FALSE
+  )
+
+  write.csv(
+    NOVO_summary,
+    paste0(
+      fname_prefix_csv,
+      "_",
+      comparison_name,
+      "_NOVO_signature_summary.csv"
+    ),
+    row.names = FALSE
+  )
+
+
+  # -----------------------------------------------------------------------
+  # One volcano plot per NOVO signature
+  # -----------------------------------------------------------------------
+
+  volcano_list <- list()
+
+  for (signature_name in names(gs_NOVO)) {
+
+    genes_to_highlight <- DEG_NOVO %>%
+      filter(
+        signature == signature_name,
+        significant %in% TRUE
+      )
+
+    volcano_signature <- ggplot(
+      DEG_current,
+      aes(
+        x = .data[[fc_col]],
+        y = log10_q_value
+      )
+    ) +
+      geom_point(
+        colour = "grey80",
+        size = 1.3,
+        alpha = 0.55
+      ) +
+      geom_point(
+        data = genes_to_highlight,
+        aes(fill = regulation),
+        shape = 21,
+        size = 3,
+        stroke = 0.7,
+        colour = "black"
+      ) +
+      scale_fill_manual(
+        values = c(
+          up = "#CC79A7",
+          down = "#009E73"
+        ),
+        breaks = c("up", "down"),
+        labels = c(
+          up = "Higher in GERALT Cl4",
+          down = paste("Higher in", comparator_label)
+        ),
+        name = NULL,
+        drop = FALSE
+      ) +
+      ggrepel::geom_text_repel(
+        data = genes_to_highlight,
+        aes(label = geneID),
+        size = 3,
+        box.padding = 0.3,
+        point.padding = 0.2,
+        segment.color = "grey50",
+        segment.linewidth = 0.2,
+        max.overlaps = Inf
+      ) +
+      geom_hline(
+        yintercept = -log10(sig_level),
+        linetype = "dotted"
+      ) +
+      geom_vline(
+        xintercept = c(-fc_level, fc_level),
+        linetype = "dotted"
+      ) +
+      labs(
+        title = comparison_title,
+        subtitle = paste0(
+          signature_name,
+          ": ",
+          nrow(genes_to_highlight),
+          " significant genes"
+        ),
+        x = "Average log2 fold change",
+        y = expression(-log[10]("adjusted p-value"))
+      ) +
+      theme_classic(base_size = 12) +
+      theme(
+        legend.position = "top",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)
+      )
+
+    volcano_list[[signature_name]] <- volcano_signature
+
+    print(volcano_signature)
+
+    safe_signature_name <- gsub(
+      "[^A-Za-z0-9_-]+",
+      "_",
+      signature_name
+    )
+
+    ggsave(
+      filename = paste0(
+        fname_prefix_dotplot,
+        "_",
+        comparison_name,
+        "_NOVO_",
+        safe_signature_name,
+        ".pdf"
+      ),
+      plot = volcano_signature,
+      width = 8,
+      height = 6
+    )
+  }
+
+  NOVO_results[[comparison_name]] <- list(
+    all_genes = DEG_NOVO,
+    significant_genes = significant_NOVO,
+    summary = NOVO_summary,
+    volcanoes = volcano_list
+  )
+}
+
+NOVO_results[["4vs9"]]$summary
+NOVO_results[["4vs7"]]$summary
+
+names(NOVO_results[["4vs9"]]$volcanoes)
+```
+###select data for heatmaps
+
+```{r}
+NOVO_categories <- c(
+  "slow_twitch_myofiber_NOVO",
+  "fast_twitch_myofiber_NOVO",
+  "skeletal_muscle_fiber_type_independent_NOVO",
+  "genes_not_in_mature_skeletal_muscle_NOVO"
+)
+
+NOVO_gene_table_heatmap <- utils::stack(
+  gs_NOVO[NOVO_categories]
+) %>%
+  dplyr::transmute(
+    geneID = as.character(values),
+    signature = factor(
+      as.character(ind),
+      levels = NOVO_categories
+    )
+  ) %>%
+  dplyr::distinct()
+
+NOVO_gene_table_heatmap %>%
+  dplyr::count(signature, name = "number_of_genes")
+```
+
+####make heatmap function
+```{r}
+library(Seurat)
+library(dplyr)
+library(tibble)
+library(ComplexHeatmap)
+library(circlize)
+library(viridisLite)
+library(grid)
+
+make_NOVO_heatmap_cds <- function(
+    cds,
+    group_values,
+    groups_to_keep,
+    group_labels = groups_to_keep,
+    heatmap_title,
+    palette_option = "cividis"
+) {
+
+  # Normalized log-expression from Monocle
+  expression_matrix <- monocle3::normalized_counts(
+    cds
+  )
+
+  # Ensure identical cell order
+  common_cells <- intersect(
+    colnames(expression_matrix),
+    names(group_values)
+  )
+
+  expression_matrix <- expression_matrix[
+    ,
+    common_cells,
+    drop = FALSE
+  ]
+
+  group_values <- as.character(
+    group_values[common_cells]
+  )
+
+  # Select requested cells
+  cells_to_keep <- !is.na(group_values) &
+    group_values %in% groups_to_keep
+
+  expression_matrix <- expression_matrix[
+    ,
+    cells_to_keep,
+    drop = FALSE
+  ]
+
+  group_values <- factor(
+    group_values[cells_to_keep],
+    levels = groups_to_keep
+  )
+
+  # Check that every requested group is present
+  missing_groups <- setdiff(
+    groups_to_keep,
+    unique(as.character(group_values))
+  )
+
+  if (length(missing_groups) > 0) {
+    stop(
+      "These groups are absent from cds: ",
+      paste(missing_groups, collapse = ", ")
+    )
+  }
+
+  # NOVO genes present in cds
+  requested_genes <- unique(
+    NOVO_gene_table_heatmap$geneID
+  )
+
+  genes_available <- intersect(
+    requested_genes,
+    rownames(expression_matrix)
+  )
+
+  genes_missing <- setdiff(
+    requested_genes,
+    genes_available
+  )
+
+  if (length(genes_missing) > 0) {
+    message(
+      length(genes_missing),
+      " NOVO genes are absent from cds: ",
+      paste(genes_missing, collapse = ", ")
+    )
+  }
+
+  if (length(genes_available) == 0) {
+    stop("None of the requested NOVO genes is present in cds.")
+  }
+
+  expression_matrix <- expression_matrix[
+    genes_available,
+    ,
+    drop = FALSE
+  ]
+
+  # Average normalized expression within each group
+  group_design <- Matrix::sparse.model.matrix(
+    ~ 0 + group_values
+  )
+
+  average_expression <- expression_matrix %*%
+    group_design
+
+  average_expression <- sweep(
+    average_expression,
+    MARGIN = 2,
+    STATS = Matrix::colSums(group_design),
+    FUN = "/"
+  )
+
+  average_expression <- as.matrix(
+    average_expression
+  )
+
+  colnames(average_expression) <- groups_to_keep
+  colnames(average_expression) <- group_labels
+
+  # Gene-wise z-score
+  heatmap_zscore <- t(
+    scale(t(average_expression))
+  )
+
+  # Genes without variation among groups
+  heatmap_zscore[!is.finite(heatmap_zscore)] <- 0
+
+  # Category and row order
+  heatmap_rows <- NOVO_gene_table_heatmap %>%
+    dplyr::filter(geneID %in% rownames(heatmap_zscore)) %>%
+    dplyr::arrange(signature, geneID)
+
+  heatmap_matrix <- heatmap_zscore[
+    heatmap_rows$geneID,
+    ,
+    drop = FALSE
+  ]
+
+  # Duplicate genes belonging to different signatures need unique row names
+  rownames(heatmap_matrix) <- make.unique(
+    heatmap_rows$geneID
+  )
+
+  colour_limit <- max(
+    1,
+    abs(heatmap_matrix),
+    na.rm = TRUE
+  )
+
+  if (palette_option == "turbo") {
+
+    heatmap_colours <- circlize::colorRamp2(
+      seq(-colour_limit, colour_limit, length.out = 101),
+      viridisLite::turbo(101)
+    )
+
+  } else if (palette_option == "viridis") {
+
+    heatmap_colours <- circlize::colorRamp2(
+      seq(-colour_limit, colour_limit, length.out = 101),
+      viridisLite::viridis(101)
+    )
+
+  } else {
+
+    heatmap_colours <- circlize::colorRamp2(
+      seq(-colour_limit, colour_limit, length.out = 101),
+      viridisLite::cividis(101)
+    )
+  }
+
+  ComplexHeatmap::Heatmap(
+    heatmap_matrix,
+    name = "Gene\nz-score",
+    col = heatmap_colours,
+
+    row_split = heatmap_rows$signature,
+    row_title_rot = 0,
+    row_gap = grid::unit(2.5, "mm"),
+
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+
+    show_row_names = TRUE,
+    row_labels = heatmap_rows$geneID,
+    row_names_gp = grid::gpar(fontsize = 8),
+
+    show_column_names = TRUE,
+    column_names_rot = 0,
+    column_names_gp = grid::gpar(
+      fontsize = 10,
+      fontface = "bold"
+    ),
+
+    column_title = heatmap_title,
+    column_title_gp = grid::gpar(
+      fontsize = 13,
+      fontface = "bold"
+    ),
+
+    heatmap_legend_param = list(
+      title = "Relative\nexpression",
+      at = c(-colour_limit, 0, colour_limit),
+      labels = c("Lower", "Mean", "Higher")
+    ),
+
+    border = TRUE
+  )
+}
+
+cluster_values <- setNames(
+  as.character(SummarizedExperiment::colData(cds)$monocle_clusters),
+  colnames(cds)
+)
+group_values = cluster_values
+
+sample_values <- setNames(
+  as.character(SummarizedExperiment::colData(cds)$sample),
+  colnames(cds)
+)
+
+
+#####per sample (not great)
+
+NOVO_heatmap_samples <- make_NOVO_heatmap_cds(
+  cds = cds,
+  group_values = sample_values,
+  groups_to_keep = c(
+    "GERALTd7",
+    "OPTIOXd7",
+    "LONZApost"
+  ),
+  group_labels = c(
+    "GERALT D7",
+    "OPTi-OX D7",
+    "LONZA post-fusion"
+  ),
+  heatmap_title = "NOVO skeletal-muscle signatures by sample",
+  palette_option = "cividis"
+)
+
+ComplexHeatmap::draw(
+  NOVO_heatmap_samples,
+  heatmap_legend_side = "right"
+)
+
+#per cluster much better
+NOVO_heatmap_clusters <- make_NOVO_heatmap_cds(
+  cds = cds,
+  group_values = cluster_values,
+  groups_to_keep = c("4", "7", "9"),
+  group_labels = c(
+    "GERALT Cl4",
+    "OPTi-OX Cl7",
+    "LONZA Cl9"
+  ),
+  heatmap_title = "NOVO skeletal-muscle signatures by cluster",
+  palette_option = "cividis"
+)
+
+ComplexHeatmap::draw(
+  NOVO_heatmap_clusters,
+  heatmap_legend_side = "right"
+)
+```
+
+###save heatmaps
+```{r}
+###clust heatmap
+pdf(
+  paste0(fname_prefix_dotplot, "_NOVO_heatmap_clusters_4_7_9.pdf"),
+  width = 8,
+  height = 12
+)
+
+draw(
+  NOVO_heatmap_clusters,
+  heatmap_legend_side = "right"
+)
+###samp heatmap
+dev.off()
+
+pdf(
+  paste0(fname_prefix_dotplot, "_NOVO_heatmap_samples.pdf"),
+  width = 8,
+  height = 12
+)
+
+draw(
+  NOVO_heatmap_samples,
+  heatmap_legend_side = "right"
+)
+
+dev.off()
+```
+###also make a dotplot for the NOVO genes
+
+```{r}
+
+NOVO_signature_labels <- c(
+  slow_twitch_myofiber_NOVO =
+    "Slow-twitch myofiber",
+  fast_twitch_myofiber_NOVO =
+    "Fast-twitch myofiber",
+  skeletal_muscle_fiber_type_independent_NOVO =
+    "Fiber-type-independent skeletal muscle",
+  genes_not_in_mature_skeletal_muscle_NOVO =
+    "Genes absent from mature skeletal muscle"
+)
+
+NOVO_signature_filenames <- c(
+  slow_twitch_myofiber_NOVO =
+    "slow_twitch",
+  fast_twitch_myofiber_NOVO =
+    "fast_twitch",
+  skeletal_muscle_fiber_type_independent_NOVO =
+    "fiber_type_independent",
+  genes_not_in_mature_skeletal_muscle_NOVO =
+    "not_in_mature_muscle"
+)
+
+make_NOVO_cluster_dotplot <- function(
+    cds,
+    genes,
+    clusters_to_keep = c("4", "7", "9"),
+    cluster_labels = c(
+      "GERALT Cl4",
+      "OPTi-OX Cl7",
+      "LONZA Cl9"
+    ),
+    plot_title,
+    max_dot_size = 6
+) {
+
+  genes_present <- unique(
+    genes[genes %in% rownames(cds)]
+  )
+
+  genes_missing <- setdiff(
+    unique(genes),
+    genes_present
+  )
+
+  if (length(genes_missing) > 0) {
+    message(
+      plot_title,
+      ": missing genes: ",
+      paste(genes_missing, collapse = ", ")
+    )
+  }
+
+  if (length(genes_present) == 0) {
+    warning("No genes available for: ", plot_title)
+    return(NULL)
+  }
+
+  cluster_values <- as.character(
+    SummarizedExperiment::colData(cds)$monocle_clusters
+  )
+
+  cells_to_keep <- cluster_values %in% clusters_to_keep
+
+  cds_signature <- cds[
+    genes_present,
+    cells_to_keep
+  ]
+
+  SummarizedExperiment::colData(
+    cds_signature
+  )$dotplot_cluster <- factor(
+    as.character(
+      SummarizedExperiment::colData(
+        cds_signature
+      )$monocle_clusters
+    ),
+    levels = clusters_to_keep,
+    labels = cluster_labels
+  )
+
+  monocle3::plot_genes_by_group(
+    cds_signature,
+    markers = genes_present,
+    group_cells_by = "dotplot_cluster",
+    ordering_type = "none",
+    max.size = max_dot_size
+  ) +
+    ggplot2::scale_colour_viridis_c(
+      option = "E",
+      direction = 1,
+      name = "Mean\nexpression"
+    ) +
+    ggplot2::labs(
+      title = plot_title,
+      x = NULL,
+      y = NULL,
+      size = "% expressing"
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(
+        hjust = 0.5,
+        face = "bold"
+      ),
+      axis.text.x = ggplot2::element_text(
+        angle = 45,
+        hjust = 1
+      ),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+}
+
+NOVO_dotplots_by_cluster <- list()
+#visualize
+
+NOVO_dotplots_by_cluster[["slow_twitch_myofiber_NOVO"]]
+
+###save dotplots for each NOVO signature
+
+for (signature_name in NOVO_categories) {
+
+  signature_genes <- NOVO_gene_table_heatmap %>%
+    dplyr::filter(
+      as.character(signature) == signature_name
+    ) %>%
+    dplyr::pull(geneID)
+
+  NOVO_dotplots_by_cluster[[signature_name]] <-
+    make_NOVO_cluster_dotplot(
+      cds = cds,
+      genes = signature_genes,
+      plot_title = NOVO_signature_labels[[signature_name]]
+    )
+}
+
+for (signature_name in NOVO_categories) {
+
+  current_plot <- NOVO_dotplots_by_cluster[[signature_name]]
+
+  if (!is.null(current_plot)) {
+
+    number_of_genes <- NOVO_gene_table_heatmap %>%
+      dplyr::filter(
+        as.character(signature) == signature_name,
+        geneID %in% rownames(cds)
+      ) %>%
+      dplyr::distinct(geneID) %>%
+      nrow()
+
+    ggplot2::ggsave(
+      filename = paste0(
+        fname_prefix_dotplot,
+        "_NOVO_",
+        NOVO_signature_filenames[[signature_name]],
+        "_dotplot_clusters_4_7_9.pdf"
+      ),
+      plot = current_plot,
+      width = 5,
+      height = max(4, 0.30 * number_of_genes + 2)
+    )
+  }
+}
+```
+
+
+
+###save data
+
+```{r}
+Rdata_filename = paste0(fname_prefix_R, "_monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")#latest is of 30/07/2026 placed in scratch
+save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,de_stats,
+     file = Rdata_filename)
+
+#Rdata_filename = paste0("/Users/elisabalmaselisabalmas/Documents", "/monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")#latest is of 30/07/2026 placed in scratch
+#save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,de_stats,gs, gs_NOVO,
+ #    file = Rdata_filename)
+```
+
+
+
+
+
+

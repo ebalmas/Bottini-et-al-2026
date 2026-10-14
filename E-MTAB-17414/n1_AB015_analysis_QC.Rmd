@@ -1099,6 +1099,23 @@ plot_cells(cds,
    ggsave(filename = paste0(fname_prefix_dotplot, "_", "UMAP_cust.pdf"),
      width = 8, height = 6)
    
+   plot_cells(cds,
+           genes = c("MKI67","MYF5","COL3A1","CCN2","MYL2","MYOG","TNNT1,TNNT3","TTN"),
+           label_cell_groups = FALSE,
+            show_trajectory_graph = FALSE)+ 
+     labs(x = "UMAP 1", y = "UMAP 2", title = "")+
+     scale_color_viridis(option="E", discrete=F)
+   ggsave(filename = paste0(fname_prefix_dotplot, "_", "UMAP_main.pdf"),
+     width = 8, height = 6)
+   
+      plot_cells(cds,
+           genes = c("PCNA","TAGLN","MYL3","MYOD1","MYBPH3","TNNC1","ID3"),
+           label_cell_groups = FALSE,
+            show_trajectory_graph = FALSE)+ 
+     labs(x = "UMAP 1", y = "UMAP 2", title = "")+
+     scale_color_viridis(option="E", discrete=F)
+   ggsave(filename = paste0(fname_prefix_dotplot, "_", "UMAP_supp.pdf"),
+     width = 8, height = 6)
 
 ```
 #####make gene lists for muscle cell types
@@ -1260,6 +1277,120 @@ oxidative_stress_antioxidant=c("NQO1", "HMOX1", "TXNIP", "FTH1", "MT1E", "MT2A",
 )
 ```
 
+####add new NOVO signatures
+#Ref: bioRxiv 2026.01.16.698404
+# ===============================
+# NOVO SIGNATURES
+# Derived from: bioRxiv 2026.01.16.698404 — bioengineered human 3D muscle
+# tissue (fibrin hydrogel bundles), matured to day 21-35, profiled for
+# structural/metabolic maturation, contraction training, B2AR pharmacology,
+# insulin/GLUT4 responsiveness, and GYS1-dependent glycogen metabolism.
+# The four Fig 2A fiber-type/structural panels were directly verified against
+# a user-provided screenshot of Fig 2A (bioRxiv 2026.01.16.698404) and of
+# Fig 7/S7 from ref [33] (van der Wal et al. 2023, Stem Cell Reports
+# 18:1954-1971). Ref 33's Fig 7D heatmap is a ~37-gene combined panel
+# (ACTA1, ACTN2, ATP1A2, ATP2A1, CASQ2, CKM, DES, DMD, MYBPC1/2, MYH2/3/6/7/8,
+# MYLPF, MYL1/2/3/6/6B, NEB, OBSCN, RYR1, TMOD1, TNNC1/2, TNNI1/2, TNNT1/2/3,
+# TPM1/2/3/4, TTN, VIM) that the bioRxiv authors evidently re-split into the
+# 4 categories below
+# ===============================
+
+```{r}
+
+gs_NOVO <- list(
+
+  # ---- Fig 2A: heatmap of slow-twitch / fast-twitch / fiber-type-independent
+  # structural / "not expressed in mature skeletal muscle" gene panels.
+  # Verified directly against the Fig 2A screenshot (bioRxiv
+  # 2026.01.16.698404) -- all 4 lists match the figure gene-for-gene, with
+  # one correction noted below.
+  slow_twitch_myofiber_NOVO = c("TNNT1","MYL3","TPM3","MYBPC1","ATP2A2","TPM2","MYL6B",
+                                 "MYH7","TNNI1","TNNC1","MYL2"),
+  # [corrected: added TPM3, which is present in the Fig 2A slow-twitch panel
+  # but was missing from the original draft -- now matches the figure
+  # exactly, 11/11 genes]. Overlaps substantially with existing fiber_type_I_slow.
+
+  fast_twitch_myofiber_NOVO = c("TPM1","MYBPC2","ATP2A1","MYH2","MYL1","TNNI2",
+                                 "TNNC2","TNNT3","MYLPF","ACTN3"),
+  # Matches Fig 2A fast-twitch panel exactly, 10/10 genes.
+  # [corrected typo: ATPA2A1 -> ATP2A1]. Overlaps substantially with
+  # existing fiber_type_IIa_fast.
+
+  skeletal_muscle_fiber_type_independent_NOVO = c("TPM4","VIM","DES","OBSCN","ACTN2",
+                                                    "RYR1","DMD","TMOD1","ACTA1","CKM",
+                                                    "NEB","TTN"),
+  # Matches Fig 2A "Skeletal muscle" panel exactly, 12/12 genes. [renamed from
+  # "scheletal_muscle_NOVO": fixed spelling, matched to the paper's actual
+  # category label]. Partial overlap with existing sarcomere_core.
+
+  genes_not_in_mature_skeletal_muscle_NOVO = c("MYH8","MYH6","MYH3","MYL6","MYL4",
+                                                 "TNNT2","MYOG"),
+  # Matches Fig 2A "Non skeletal muscle" panel exactly, 7/7 genes. MYH8/MYH3
+  # also independently confirmed in ref 33's own text (embryonic MYH3/
+  # neonatal MYH8 decline with maturation). [renamed from
+  # "non_scheletal_muscle_NOVO": fixed spelling, matched to the paper's
+  # actual category label]. Conceptually overlaps existing developmental_embryonic.
+
+  glycogen_metabolism_NOVO = c("GYS1","PYGM","PHKA1","PHKB","PHKG1","GBE1",
+                                "PPP1R3A","PPP1R3C","GYG1","PGM1","UGP2","STBD1"),
+  # GYS1 = glycogen synthase (Fig 7 knockdown: endurance/recovery under
+  # glucose starvation); PYGM/PHKA1/B/G1 = glycogen phosphorylase &
+  # phosphorylase kinase (Fig 2F, explicitly quantified). GBE1/PPP1R3A/C/
+  # GYG1/PGM1/UGP2/STBD1 added as canonical glycogen synthesis/breakdown
+  # pathway members (not individually assayed in the paper).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 2F, Fig 7.
+
+  ampk_energy_sensing_NOVO = c("PRKAA1","PRKAA2","PRKAB1","PRKAB2","PRKAG1",
+                                "PRKAG3","STK11","CAB39","CAB39L"),
+  # Muscle-dominant AMPK alpha2/beta2/gamma1/gamma3 subunits, upregulated
+  # with maturation (Fig 2G, western blot). STK11/CAB39/CAB39L = canonical
+  # upstream LKB1 kinase complex, added for pathway completeness.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 2G.
+
+  beta2_adrenergic_response_NOVO = c("ADRB2","PPARGC1A","NR4A1","NR4A2","NR4A3",
+                                      "PGK1","CREB1","LIPE","RPS6","GYS1"),
+  # Acute clenbuterol (B2AR agonist) phospho-targets (LIPE=pHSL, CREB1=pCREB,
+  # RPS6=pRPS6) and chronic B2AR-responsive transcripts (PPARGC1A, NR4A1/3,
+  # PGK1, GYS1) exactly as reported. NR4A2 added as a paralog for completeness.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 5A-B.
+
+  insulin_glut4_signaling_NOVO = c("SLC2A4","SLC2A1","SLC2A3","INSR","IRS1",
+                                    "IRS2","PIK3R1","AKT2","TBC1D4","RAB10"),
+  # SLC2A4/1/3 (GLUT4/1/3) shift explicitly measured (Fig 6, Fig S3),
+  # reflecting maturation of insulin responsiveness. INSR/IRS1/2/PIK3R1/
+  # AKT2/TBC1D4/RAB10 = canonical insulin -> GLUT4 translocation cascade,
+  # added for pathway completeness (not individually assayed).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 6, Fig S3.
+
+  exercise_training_adaptation_NOVO = c("SLC2A4","HK2","PDHA1","PPARGC1A",
+                                         "NR4A3","VEGFA"),
+  # SLC2A4 (GLUT4), HK2 (HKII), PDHA1 (PDH-E1a) explicitly increased with
+  # 12-day contraction training (Fig 4C, protein level). PPARGC1A/NR4A3/
+  # VEGFA = canonical endurance-training response genes, added for context.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 4A-C.
+
+  hypoxia_glucose_fatigue_stress_NOVO = c("HIF1A","SLC16A1","SLC16A3","PDK1",
+                                           "LDHA","PFKFB3","VEGFA","CA9","BNIP3"),
+  # Functional phenotype (accelerated fatigue + lactate accumulation under
+  # hypoxia/glucose starvation) is reported (Fig 3E,3H) but no transcriptomic
+  # panel was profiled for this specific experiment — genes here are the
+  # canonical HIF1A hypoxia-response/lactate-shuttle module, inferred rather
+  # than directly measured. Treat as a mechanistic hypothesis signature.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 3E, Fig 3H (phenotype only).
+
+  tissue_maturation_3D_vs_monolayer_NOVO = c("MYBPC1","MYL1","MYH2","SDHA","DMD")
+  # MYBPC1/MYL1/MYH2 = sarcomeric/contractile genes explicitly induced in
+  # day-21 3D bioengineered tissue vs 7-day 2D monolayer myotubes (Fig 1D
+  # volcano plot). SDHA = exemplar of the "progressive mitochondrial
+  # maturation" DEG cluster (cluster 2); DMD = exemplar of the "early
+  # structural consolidation" DEG cluster (cluster 4) (Fig 1F-G).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 1D, Fig 1G.
+)
+ 
+# To merge into your existing gs list:
+gs <- c(gs, gs_NOVO)
+```
+
 ####make plots
 
 ```{r}
@@ -1299,6 +1430,15 @@ for (sig_name in names(gs)) {
 
 cell_metadata=as.data.frame(cds@colData@listData)
 seurat_AB015<-as.Seurat(cds, assay = NULL)
+
+DefaultAssay(seurat_AB015) <- "originalexp"
+
+seurat_AB015 <- NormalizeData(
+  object = seurat_AB015,
+  assay = "originalexp",
+  normalization.method = "LogNormalize",
+  scale.factor = 10000)
+
 ###add cell cycle scores
 exp.mat <- read.table(file = "scratch/cell_cicle_reg_genes/nestorawa_forcellcycle_expressionMatrix.txt", header = TRUE, 
     as.is = TRUE, row.names = 1)
@@ -1422,7 +1562,7 @@ meta=as.data.frame(cds@colData@listData)
 
 write.csv(meta, file= paste0(fname_prefix_csv, "_", "meta.csv"), row.names=FALSE)
 
-Rdata_filename = paste0(fname_prefix_R, "_monocle_seurat_cds_clustered_FINAL_AB015.RData")#latest is of 26/06/2026
+Rdata_filename = paste0(fname_prefix_R, "_monocle_seurat_cds_clustered_FINAL_AB015.RData")#latest is of 30/07/2026 placed in scratch
 save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,
      file = Rdata_filename)
 Rdata_filename = paste0(fname_prefix_R, "_seurat_AB015.RData")

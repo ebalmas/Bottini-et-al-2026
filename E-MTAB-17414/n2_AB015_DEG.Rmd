@@ -124,7 +124,7 @@ cols_all <- pals::alphabet(20)#extended colorblind friendly palette
 ```{r}
 
 #load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINA_AB015L.RData
-load(paste0(getwd(),"/scratch/260704_monocle_seurat_cds_clustered_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINAL_AB015.RData
+load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINAL_AB015.RData
 
 
 
@@ -182,6 +182,20 @@ DEG_cl4vs9_10 <- FindMarkers(
 DEG_cl4vs9_10$genes=rownames(DEG_cl4vs9_10)
 DEG_cl4vs9_10=DEG_cl4vs9_10%>%dplyr::select(genes,p_val_adj,avg_log2FC)
 colnames(DEG_cl4vs9_10) <- c("geneID", "q_value_4vs9_10", "logFC_4vs9_10")
+
+DEG_cl4vs9 <- FindMarkers(
+  seurat,only.pos = FALSE,
+  ident.1 = "4", ident.2 = "9",
+  test.use = "wilcox",
+  logfc.threshold = 0,
+  min.pct = 0,
+  min.cells.feature = 1,
+  min.cells.group  = 1,
+  features = rownames(seurat))
+DEG_cl4vs9$genes=rownames(DEG_cl4vs9)
+DEG_cl4vs9=DEG_cl4vs9%>%dplyr::select(genes,p_val_adj,avg_log2FC)
+colnames(DEG_cl4vs9) <- c("geneID", "q_value_4vs9", "logFC_4vs9")
+
 
 # mature myotubes GERALT (cl4) vs mature myotubes OPTIOXD7 (cl7)
 DEG_cl4vs7=FindMarkers(seurat,only.pos = FALSE, ident.1 = "4", ident.2 = c("7"),
@@ -456,6 +470,7 @@ colnames(DEG_cl11vsall) <- c("geneID", "q_value_11vsall", "logFC_11vsall")
 
 
 de_stats <- DEG_cl4vs9_10 %>%
+  left_join(DEG_cl4vs9, by = "geneID") %>%
   left_join(DEG_cl4vs7, by = "geneID") %>%
   left_join(DEG_cl9vs4,       by = "geneID") %>%
   left_join(DEG_cl10vs4,   by = "geneID") %>%
@@ -530,6 +545,7 @@ fc_level2 <- (log2(2))*-1
 ###################################
 N=20
 list=c("4vs9_10",
+  "4vs9",
   "4vs7",
   "9vs4",
   "10vs4",
@@ -572,6 +588,7 @@ for (i in list) {
 
 N <- 25
 contrasts <- c("4vs9_10",
+  "4vs9",
   "4vs7",
   "9vs4",
   "10vs4",
@@ -639,6 +656,7 @@ de_stats=de_stats%>% distinct(geneID, .keep_all = TRUE)#eliminate duplicates
 
 # Loop through clusters to make all the volcano plots in bulk than use the one below to make specific ones
 contrasts <- c("4vs9_10",
+  "4vs9",
   "4vs7",
   "9vs4",
   "10vs4",
@@ -717,6 +735,7 @@ for (i in contrasts)  {
 library(clusterProfiler)
 library(enrichplot)
 library(org.Hs.eg.db)
+
 
 genes_6vs3_4_5_8_cl6       <- subset(de_stats, de_stats$treshold_cl6vs3_4_5_8 == "up")
 genes_6vs3_4_5_8_cl3_4_5_8 <- subset(de_stats, de_stats$treshold_cl6vs3_4_5_8 == "down")
@@ -1020,6 +1039,7 @@ set_min_n_genes <- 5
 
 # Build ranked gene lists from ALL genes in each contrast
 contrast_cols <- c("4vs9_10",
+  "4vs9",
   "4vs7",
   "9vs4",
   "10vs4",
@@ -1664,7 +1684,22 @@ score_labels <- c(
   mesoderm_specification         = "mesoderm specification",
   early_myogenic_commitment      = "early myogenic commitment",
   hiPSC_to_mesoderm_transition   = "hiPSC-to-mesoderm transition",
-  oxidative_stress_antioxidant   = "oxidative stress / antioxidant"
+  oxidative_stress_antioxidant   = "oxidative stress / antioxidant",
+
+  ###novo dataset
+  slow_twitch_myofiber_NOVO =  "slow twitch myofiber",
+  fast_twitch_myofiber_NOVO =  "fast twitch myofiber",
+  skeletal_muscle_fiber_type_independent_NOVO =
+  "skeletal muscle, fiber-type independent",
+genes_not_in_mature_skeletal_muscle_NOVO =
+  "genes not expressed in mature skeletal muscle",
+  glycogen_metabolism_NOVO = "glycogen metabolism",
+  ampk_energy_sensing_NOVO = "AMPK energy sensing",
+  beta2_adrenergic_response_NOVO = "beta2 adrenergic response",
+  insulin_glut4_signaling_NOVO = "insulin / GLUT4 signaling",
+  exercise_training_adaptation_NOVO = "exercise training adaptation",
+  hypoxia_glucose_fatigue_stress_NOVO = "hypoxia / glucose / fatigue / stress",
+  tissue_maturation_3D_vs_monolayer_NOVO = "tissue maturation 3D vs monolayer"
 )
 
 # ── data ─────────────────────────────────────────────────────────────────────
@@ -2600,6 +2635,17 @@ ggsave(
 )
 ```
 
+###save data
+
+```{r}
+Rdata_filename = paste0(fname_prefix_R, "_monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")#latest is of 30/07/2026 placed in scratch
+save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,de_stats,
+     file = Rdata_filename)
+
+#Rdata_filename = paste0("/Users/elisabalmaselisabalmas/Documents", "/monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")#latest is of 30/07/2026 placed in scratch
+#save(cell_metadata, counts,cds,meta,original_counts,seurat_AB015,de_stats,gs, gs_NOVO,
+ #    file = Rdata_filename)
+```
 
 
 

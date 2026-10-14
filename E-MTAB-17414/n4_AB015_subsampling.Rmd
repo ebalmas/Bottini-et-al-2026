@@ -1,0 +1,2492 @@
+---
+title: "n3 AB015: subsampling and cluster geralt and optiox"
+author: "Elisa Balmas PhD"
+date: "2025-08-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up environment
+
+```{r}
+library(EnhancedVolcano)
+library(monocle3)
+library(tidyr)
+library(stringr)
+library(grid)
+library(viridis)
+library(viridisLite)
+library(ggthemes)
+library(dplyr)
+library(tidyverse)
+library(ggsignif)
+library(umap)
+library(heatmap3)
+library(plyr)
+library(edgeR)
+library(compareGroups)
+library(dbscan)
+library(MAST)
+library(geosphere)
+library(RColorBrewer)
+library(Seurat)
+library(htmlwidgets)
+library(Matrix)
+library(tidyseurat)
+library(SeuratWrappers)
+library(scMAGeCK)
+library(readxl)
+library(rCASC)
+library(deepToolsUtils)
+library(R.utils)
+library(plotly)
+
+
+library(ggplot2); library(reshape2); theme_set(theme_bw(26) + theme(panel.grid.major = element_blank(), 
+                                                                    panel.grid.minor = element_blank()) +
+                                                 theme(legend.key = element_blank()))
+update_geom_defaults("point", aes(size = 4))
+
+#setwd("/home/ebalmas/scpHUB/projects/H001AS7_iKDseq_10X_4tp_monocle/analysis_EB")
+
+# Session options
+options(stringsAsFactors = FALSE)
+set.seed(12345)
+
+# Set up the ggplot default params
+theme_set(theme_bw(12) + 
+          theme(panel.grid.major = element_blank(), 
+                panel.grid.minor = element_blank(),
+                plot.title = element_text(size=15, face="bold", margin = margin(10,0,10,0)),
+                axis.text.x = element_text(angle=45, hjust = 1)))
+
+
+# Set up filename prefixes and output folders with the data
+
+dir.create(file.path("Output","SUBS"))#create forders MONOCLE
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d")))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "R_objects"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "dotplots"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "dotplots","single"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "stat"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "csv"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "UMAP"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "mosaic"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "heatmap"))
+dir.create(file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "GO"))
+
+
+#set up forder path MONOCLE
+fname_prefix_R <- file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "R_objects", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot <- file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "dotplots", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_dotplot_single <- file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "dotplots", "single", 
+                                                 format(Sys.Date(), "%y%m%d"))
+fname_prefix_csv<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "csv", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_stat<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "stat", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_UMAP<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "UMAP", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_mosaic<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "mosaic", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_heatmap<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "heatmap", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_GO<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "GO", 
+                               format(Sys.Date(), "%y%m%d"))
+fname_prefix_violin<-file.path("Output","SUBS", format(Sys.Date(), "%y%m%d"), "violin", 
+                               format(Sys.Date(), "%y%m%d"))
+
+fname_prefix_scratch="scratch/"
+
+
+okabe_pal=c("#E69F00","#56B4E9","#009E73","#f0E442","#0072B2","#D55E00","#CC79A7","#000000")
+
+
+pal <- c("#000000","#004949","#009292","#ff6db6","#ffb6db",
+         "#490092","#006ddb","#b66dff","#6db6ff","#b6dbff",
+         "#920000","#924900","#db6d00","#24ff24","#ffff6d")
+
+library(pals)
+cols_all <- pals::alphabet(20)#extended colorblind friendly palette
+# amethyst      blue   caramel    damson     ebony    forest     green  honeydew      iron      jade     khaki      lime   magenta      navy    orange      pink 
+#"#F0A0FF" "#0075DC" "#993F00" "#4C005C" "#191919" "#005C31" "#2BCE48" "#FFCC99" "#808080" "#94FFB5" "#8F7C00" "#9DCC00" "#C20088" "#003380" "#FFA405" "#FFA8BB" 
+# quagmire       red       sky turquoise 
+#"#426600" "#FF0010" "#5EF1F2" "#00998F"
+```
+
+########load data
+
+```{r}
+
+#load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_FINAL_AB015.RData")) #it was 260626_monocle_seurat_cds_clustered_FINA_AB015L.RData
+load(paste0(getwd(),"/scratch/monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData")) #it was 260730_monocle_seurat_cds_clustered_annotated_FINAL_AB015.RData
+
+
+
+#cl_pal=c("#000000","#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+
+#cl_pal=c("#000000","#E69F00", "#009E73", "#CC79A7", "#D55E00", "#f0E442")
+
+#cl_pal=c("#000000","#56B4E9", "#009E73","#004949","#24ff24", "#CC79A7", "#D55E00", "#f0E442", "#0072B2","#b6dbff","#ff6db6")
+
+cl_pal=c("#24ff24","#D55E00","#b6dbff","#0072B2","#56B4E9")
+
+cluster_tab=data.frame(monocle_cluster=c("1","2","3","4","5"),
+                       cluster_color=cl_pal)
+
+cluster_tab$cluster_name=cluster_tab$monocle_cluster#need to change when defined
+cluster_tab$cluster_name_short=cluster_tab$monocle_cluster#need to change when defined
+
+
+#palettes for clusters on other datasets
+
+# 5-cluster palette (colors NOT in cl_pal6) ####from iPS2seq
+cl_pal5 <- c("#94FFB5", "#56B4E9", "#999999", "#332288", "#117733")
+
+# 4-cluster palette (again distinct from both cl_pal6 and cl_pal5) ####from B8 dataset
+cl_pal4 <- c("#88CCEE", "#CC6677", "#DDCC77", "#44AA99")
+
+#9 cluster palette ####from AB017 dataset
+cl_pal_9=c("#000000","#56B4E9", "#009E73","#004949","#24ff24", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+```
+
+
+# -------------------------------------------------------------------------
+# create new subsets and dataset to then do the subsampling of the data
+# -------------------------------------------------------------------------
+#subset data to only include geralt and optiox or lonza post fusion to analyze with knn analysis of the clusters
+
+```{r}
+cds_ger_opti <- cds[,cds@colData@listData[["cell_type"]]=="GERALT" | cds@colData@listData[["cell_type"]]=="OPTIOX"]
+
+meta_ger_opti=subset(meta, meta$cell_type=="GERALT" | meta$cell_type=="OPTIOX")
+
+cds_ger_opti <- preprocess_cds(cds_ger_opti, num_dim = 30)
+set.seed(678686)
+cds_ger_opti = reduce_dimension(cds_ger_opti,umap.min_dist = 0.2,reduction_method="UMAP")
+#cds = reduce_dimension(cds,umap.min_dist = 0.5,reduction_method="UMAP")
+#monocle.object = order_cells(monocle.object, reduction_method = "UMAP")
+#set.seed(12345)
+
+```
+
+#####create GER_OPTI monocle and seurat objects
+
+```{r}
+cds_1 = cluster_cells(cds_ger_opti, resolution = 1e-2)
+colData(cds_1)$monocle_clusters = as.character(monocle3::clusters(cds_1))
+plot_cells(cds_1, color_cells_by="cluster", group_cells_by="cluster",group_label_size = 7, cell_size=0.8)+facet_grid(~sample)
+#cds_2a = cluster_cells(cds_ger_opti, resolution = 1e-4)
+#colData(cds_2a)$monocle_clusters = as.character(monocle3::clusters(cds_2a))
+#cds_3 = cluster_cells(cds, resolution = 5e-5)
+cds_3 = cluster_cells(cds_ger_opti, k=15, resolution = 2e-4)
+colData(cds_3)$monocle_clusters = as.character(monocle3::clusters(cds_3))
+plot_cells(cds_3, color_cells_by="cluster", group_cells_by="cluster",group_label_size = 7, cell_size=0.8)+facet_grid(~sample)
+
+#cds_4a = cluster_cells(cds_ger_opti, resolution = 2e-4)
+#colData(cds_4a)$monocle_clusters = as.character(monocle3::clusters(cds_4a))
+cds_5 = cluster_cells(cds_ger_opti, resolution = 5e-4)
+colData(cds_5)$monocle_clusters = as.character(monocle3::clusters(cds_5))
+plot_cells(cds_5, color_cells_by="cluster", group_cells_by="cluster",group_label_size = 7, cell_size=0.8)+facet_grid(~sample)
+
+cds_ger_opti=cds_3
+cds_ger_opti <- learn_graph(cds_ger_opti)
+rm(cds_1,cds_2,cds_3,cds_4,cds_5)
+
+pbuild <- plot_cells(cds_ger_opti, color_cells_by = "monocle_clusters", label_cell_groups=T, show_trajectory_graph = F, label_leaves=F, label_branch_points=F, graph_label_size=3, group_label_size = 4, cell_size = 1) 
+UmapCDS <- data.frame(pbuild$data$sample_name,UMAP1_monocle = pbuild$data$data_dim_1, UMAP2_monocle = pbuild$data$data_dim_2, row.names = 1) 
+colData(cds_ger_opti)$UMAP_1_monocle_ger_opti=pbuild$data$data_dim_1 #add umap data for further analysis outside monocle
+colData(cds_ger_opti)$UMAP_2_monocle_ger_opti=pbuild$data$data_dim_2 #add umap data for further analysis outside monocle
+
+meta_ger_opti=as.data.frame(cds_ger_opti@colData@listData)
+
+#cl_pal=c("#000000","#E69F00", "#009E73", "#CC79A7", "#D55E00", "#f0E442", "#0072B2")
+
+cl_pal=c("#24ff24","#D55E00","#b6dbff","#0072B2","#56B4E9")
+
+cluster_tab=data.frame(monocle_cluster=c("1","2","3","4","5"),
+                       cluster_color=cl_pal)
+
+ggplot(meta_ger_opti, aes(x = UMAP_1_monocle_ger_opti, y = UMAP_2_monocle_ger_opti)) +
+    geom_point(aes(color = monocle_clusters),
+               size = 0.8,alpha=0.7)+
+  labs(x = "UMAP 1", y = "UMAP 2", title = "Monocle clusters")+
+  scale_color_manual(name = "monocle",
+                        values=c(cl_pal))
+ggsave(filename = paste0(fname_prefix_UMAP, "_", "UMAP_ger_opti.pdf"),
+     width = 5, height = 5)
+
+ggplot(meta_ger_opti, aes(x = UMAP_1_monocle_ger_opti, y = UMAP_2_monocle_ger_opti)) +
+    geom_point(aes(color = monocle_clusters),
+               size = 0.8,alpha=0.7)+
+  labs(x = "UMAP 1", y = "UMAP 2", title = "Monocle clusters")+
+  scale_color_manual(name = "monocle",
+                        values=c(cl_pal))+facet_grid(~sample)
+ggsave(filename = paste0(fname_prefix_UMAP, "_", "UMAP_ger_opti_samp.pdf"),
+     width = 7, height = 5)
+
+
+Rdata_filename = paste0(fname_prefix_R, "_monocle_cds_clustered_ger_opti.RData")
+save(cds_ger_opti,meta_ger_opti,
+     file = Rdata_filename)
+
+
+```
+#####add names and colors to monocle clusters
+```{r}
+cl_pal <- c("#24ff24", "#D55E00", "#b6dbff", "#0072B2", "#56B4E9")
+
+cluster_labels <- c(
+  "1" = "Myogenic transition progenitors",
+  "2" = "Advanced myotubes",
+  "3" = "MYOD1-high myotubes-1",
+  "4" = "Transitional advanced myotubes",
+  "5" = "MYOD1-high myotubes-2"
+)
+
+cluster_tab_ger_opti <- data.frame(
+  monocle_cluster = c("1", "2", "3", "4", "5"),
+  cluster_color = cl_pal,
+  stringsAsFactors = FALSE
+)
+
+cluster_tab_ger_opti$cluster_name <- cluster_labels[
+  cluster_tab_ger_opti$monocle_cluster
+]
+
+cluster_name_pal_ger_opti <- setNames(
+  cluster_tab_ger_opti$cluster_color,
+  cluster_tab_ger_opti$cluster_name
+)
+
+cluster_id_pal_ger_opti <- setNames(
+  cluster_tab_ger_opti$cluster_color,
+  cluster_tab_ger_opti$monocle_cluster
+)
+
+# -------------------------------------------------------------------------
+# Update meta_ger_opti
+# -------------------------------------------------------------------------
+
+meta_ger_opti$monocle_clusters <- as.character(meta_ger_opti$monocle_clusters)
+
+meta_ger_opti$cluster_name <- cluster_labels[
+  meta_ger_opti$monocle_clusters
+]
+
+meta_ger_opti$cluster_color <- cluster_id_pal_ger_opti[
+  meta_ger_opti$monocle_clusters
+]
+
+meta_ger_opti$cluster_name <- factor(
+  meta_ger_opti$cluster_name,
+  levels = cluster_tab_ger_opti$cluster_name
+)
+
+meta_ger_opti$monocle_clusters <- factor(
+  meta_ger_opti$monocle_clusters,
+  levels = cluster_tab_ger_opti$monocle_cluster
+)
+
+# -------------------------------------------------------------------------
+# Update cds_ger_opti colData with the same annotations
+# -------------------------------------------------------------------------
+
+colData(cds_ger_opti)$monocle_clusters <- as.character(
+  colData(cds_ger_opti)$monocle_clusters
+)
+
+colData(cds_ger_opti)$cluster_name <- cluster_labels[
+  colData(cds_ger_opti)$monocle_clusters
+]
+
+colData(cds_ger_opti)$cluster_color <- cluster_id_pal_ger_opti[
+  colData(cds_ger_opti)$monocle_clusters
+]
+
+colData(cds_ger_opti)$cluster_name <- factor(
+  colData(cds_ger_opti)$cluster_name,
+  levels = cluster_tab_ger_opti$cluster_name
+)
+
+colData(cds_ger_opti)$monocle_clusters <- factor(
+  colData(cds_ger_opti)$monocle_clusters,
+  levels = cluster_tab_ger_opti$monocle_cluster
+)
+
+# -------------------------------------------------------------------------
+# Rebuild meta_ger_opti from the updated cds
+# -------------------------------------------------------------------------
+
+meta_ger_opti <- as.data.frame(colData(cds_ger_opti))
+
+# Safety checks
+stopifnot(all(!is.na(meta_ger_opti$cluster_name)))
+stopifnot(all(!is.na(meta_ger_opti$cluster_color)))
+
+####make the final UMAP
+
+p_umap_ger_opti_names <- ggplot(meta_ger_opti,aes(x = UMAP_1_monocle_ger_opti,y = UMAP_2_monocle_ger_opti)
+) +
+  geom_point(aes(color = cluster_name),size = 0.8, alpha = 0.7) +
+  labs(
+    x = "UMAP 1",
+    y = "UMAP 2",
+    title = "Annotated clusters"
+  ) +
+  scale_color_manual(name = "cluster", values = cluster_name_pal_ger_opti, drop = FALSE) +
+  theme_classic()
+
+p_umap_ger_opti_names
+
+ggsave(
+  filename = paste0(fname_prefix_UMAP, "_", "UMAP_ger_opti_cluster_names.pdf"),
+  plot = p_umap_ger_opti_names,
+  width = 6,
+  height = 5
+)
+```
+
+#####make gene lists for muscle cell types
+
+
+```{r}
+
+gs <- list(
+  # ===============================
+  # CELL CYCLE / RIBOSOME TONE
+  # ===============================
+  cellcycle_s = c("MCM5","PCNA","TYMS","FEN1","MCM2","MCM4","RRM1","UNG","GINS2",
+                  "MCM6","CDCA7","DTL","PRIM1","UHRF1","HELLS","RFC2","RPA2","NASP",
+                  "RAD51","CHEK1","ORC6","MCM3","MCM7","MLF1IP","BRIP1","E2F8"),
+  # Ref: Seurat S.Score; Whitfield et al., Mol Biol Cell 2002 (13:1977-2000)
+  # [corrected: journal is Molecular Biology of the Cell, not Cell];
+  # Trapnell et al., Nat Biotechnol 2014
+  cellcycle_g2m = c("HMGB2","CDK1","NUSAP1","UBE2C","BIRC5","TPX2","TOP2A","NDC80",
+                    "CKS2","NUF2","CKS1B","MKI67","TMPO","CENPF","TACC3","SMC4",
+                    "CCNB2","CKAP2L","CKAP2","AURKB","BUB1","KIF11","ANP32E","TUBB4B",
+                    "GTSE1","KIF20B","HJURP","CDCA3","CDC20","TTK","CDC45","CDC6",
+                    "EXO1","TIPIN","DSCC1","BLM","CASP8AP2","USP1","CLSPN","POLA1",
+                    "CHAF1B","BRCA1","EXOSC2","USP16","POLD3","MSH2","ATAD2","RAD51AP1","RRM2"),
+  # Ref: Seurat G2M.Score; Whitfield et al., Mol Biol Cell 2002
+  # [corrected: journal is Molecular Biology of the Cell, not Cell];
+  # Trapnell et al., Nat Biotechnol 2014
+
+  ribosome_tone = c("RPLP0","RPL3","RPL5","RPL7","RPL11","RPL13A","RPL23A",
+                    "RPS3","RPS6","RPS8","RPS12","RPS18","RPS27","NCL","FBL",
+                    "NPM1","EIF4EBP1","MYC","DDIT4"),
+  # Ref: Murgia et al. 2021, Skeletal Muscle; Chemello et al. 2025 (fiber proteome core)
+  # -- confirmed, no changes.
+  # ===============================
+  # FIBER-TYPE / METABOLIC PROGRAMS
+  # ===============================
+  fiber_type_I_slow = c("MYH7","TNNI1","TNNT1","MYL2","ATP2A2","CKMT2","MB",
+                        "COX7A1","COX6A2","PPARGC1A","SDHA","CS","SLC25A4",
+                        "MYBPC1","MYL3","PDK4","ESRRA","NDUFA10"),
+  # Ref: Schiaffino & Reggiani 2011, Physiol Rev 91:1447-1531; Chemello et al. 2025;
+  # Murgia et al. 2021 -- confirmed, no changes.
+  fiber_type_IIa_fast = c("MYH2","TNNI2","TNNT3","MYL1","ATP2A1","ACTN3","TPM2",
+                          "PVALB","LDHA","PKM","PFKM","ENO1","PGAM2","ALDOA",
+                          "CKM","DMD","CASQ1"),
+  # Ref: Murgia et al. 2021; Bloemberg & Quadrilatero 2012, PLoS ONE 7:e35273;
+  # Chemello 2025 -- confirmed, no changes.
+  fiber_type_IIx_fast = c("MYH1","ACTN3","MYLK2","TNNT3","TNNI2","ATP2A1","TPM2",
+                          "CKM","LDHA","ENO1","PFKM","MYH4"),
+  # Ref: Murgia et al. 2021; Uhlén et al., Science 2015 (Human Protein Atlas)
+  # [corrected: the foundational HPA paper is Uhlén et al., Science 347:1260419 (2015),
+  # not "HPA 2021" -- if you specifically used a 2021 HPA data-freeze/update, cite that
+  # release directly rather than this year]
+developmental_embryonic = c("MYH3", "MYH8", "MYL4", "TNNI1", "TNNT1",
+                             "CHRNG", "NEFM", "NES", "CCND2"),
+# Solo geni veramente embrionali/fetali
+# Rimossi MYOG, MYOD1, MEF2C, DES, CKM, MYMK, MYMX, ACTA1
+# Ref: Chal et al. 2015, Nat Biotechnol; Sampath et al. 2018, Skeletal Muscle
+# Wal et al. 2023 cell stem cell
+# myotube_fusion_active/myotube_differentiation_fusion better than this signature];
+# Hicks et al. 2025 [unverified -- could not confirm an exact 2025 title; the closest
+# confirmed real work is the Hicks lab's human limb single-cell atlas / Nat Cell Biol
+# 2023 PAX7 niche paper -- double check your exact source]
+# and immature contractile/NMJ-associated genes.
+# Ref: Schiaffino et al. 2015, Skeletal Muscle 5:22 "Developmental myosins: expression
+# patterns and functional significance" [confirmed, correct, and a strong topical fit
+# for MYH3/MYH8/MYL4]; Chal et al. 2015, Nat Biotechnol;
+# Xi et al. 2020, Cell Stem Cell (human skeletal muscle atlas) -- confirmed.
+myotube_fusion_active = c("MYOG", "MYMK", "MYMX", "MEF2C", "DNM2",
+                           "ACTA1", "CKM", "DES"),
+# Geni del processo di fusione attivo — specifica per la transizione cl8→cl9
+# Active myoblast-to-myotube fusion / early terminal differentiation program.
+# MYMK and MYMX/Myomerger are core fusogens; MYOG/MEF2C drive terminal
+# myogenic differentiation; DNM2 supports membrane-remodeling processes.
+# Ref: Millay et al. 2013, Nature 499:301-305; Leikina et al. 2018, Dev Cell 46:767-780;
+# Chen, You, Wang et al. 2020, Cell Mol Life Sci 77:1551-1569
+# [corrected: this myomaker/myomixer-myomerger-minion review is authored by
+# Chen/You/Wang et al., not "Luo"];
+# Carvajal/Vicente-Garcia 2022/MEF2C refs [unverified -- this is an informal
+# placeholder, not a checkable citation; replace with the actual paper you meant].
+#
+  sarcomere_core = c("TTN","NEB","ACTN2","TCAP","MYBPC1","MYBPC2","MYL1","MYL2",
+                     "TNNI1","TNNI2","TNNT1","TNNT3","TPM1","TPM2","MYOM1","MYOM2","CSRP3","ANKRD1", "FHL1", "MYBPH"),
+# Sarcomere/myofibril structural program, extended to include nascent
+# sarcomere-associated mechanosensing/remodeling genes enriched in cl9.
+# Ref: GO:0030017 sarcomere / GO:0030016 myofibril;
+# ANKRD1 MARP/mechanosensing reviews; FHL1 skeletal muscle sarcomere formation
+# (Cowling et al. 2008, J Cell Biol 183:1033-1048 -- confirmed, see nascent_myotube_postfusion).
+# Lundberg et al. 2019 [unverified -- could not confirm a 2019 myofibril proteomics
+# paper under this name; Emma Lundberg's real HPA/spatial-proteomics work exists but
+# no matching 2019 title was found -- double check this reference]; GO:0030016 "myofibril"
+# 2. signature per miotubi post-fusione nascenti (cl9)
+nascent_myotube_postfusion = c("ANKRD1", "MYBPH", "FHL1", "CDKN1A",
+                                "TNNT2", "TNNT3", "BIN1", "COX6A2",
+                                "CRYAB", "F13A1", "PTGDS", "SIRT2"),
+# Dataset-driven cl9 early post-fusion myotube signature.
+# Captures nascent sarcomere/mechanosensing (ANKRD1, FHL1, MYBPH),
+# early contractile remodeling (TNNT2/TNNT3), membrane/T-tubule maturation
+# (BIN1), cell-cycle exit (CDKN1A), and early metabolic/stress adaptation
+# (COX6A2, CRYAB, SIRT2).
+# F13A1/PTGDS are retained as top cl9 DEG markers from this dataset and
+# should be interpreted as empirical cl9 markers rather than canonical myotube genes.
+# Ref: ANKRD1 reviews; Cowling et al. 2008, J Cell Biol 183:1033-1048 (FHL1)
+# -- confirmed, correct; BIN1 sarcomere/T-tubule papers;
+# Halevy et al. 1995, Science 267:1018-1021 (p21/MyoD terminal differentiation)
+# -- confirmed, correct.
+calcium_excitation_contraction = c("RYR1","CACNA1S","ATP2A1","ATP2A2","CASQ1",
+                                     "CASQ2","SLN","PLN","TRDN","STAC3","JPH1",
+                                     "CAMK2A","CAMK2B","CAV3"),
+  # Ref: Protasi et al. 2021 [unverified -- Protasi is a real, established
+  # triad/EC-coupling researcher, but no matching 2021 review ];
+
+  oxidative_mitochondrial = c("SDHA","SDHB","UQCRC1","NDUFA9","NDUFS1","COX4I1",
+                              "COX6A2","ATP5F1A","ATP5MC1","CKMT2","SLC25A4",
+                              "PPARGC1A","TFAM","CS","ACADM","NDUFB8","CYCS","PDHA1"),
+  # Ref: Lin et al. 2002, Nature 418:797-801; Chemello et al. 2025; Murgia et al. 2021
+
+  glycolytic_fast = c("HK2","PFKM","ALDOA","TPI1","GAPDH","PGK1","PGAM2","ENO1",
+                      "PKM","LDHA","PDK1","SLC2A4","PFKFB3","ENO3","MYL1"),
+  # Ref: Schiaffino & Reggiani 2011; Chemello 2025 -- confirmed, no changes.
+  # ===============================
+  # STEM / MYOGENIC LINEAGES
+  # ===============================
+satellite_cell_core = c("PAX7","VCAM1","ITGA7","CXCR4","MYF5","CDH15","SDC4",
+                          "EGFR","NCAM1","SPRY1","MUSTN1","NOS1"),
+  # Ref: De Micheli et al. 2020, Skeletal Muscle (GEO: GSE143704); Yin et al. 2013, Physiol Rev
+  # [corrected: GSE143437 is a mouse skeletal-muscle regeneration dataset, not a human
+  # atlas -- it does not match De Micheli/Yin here. De Micheli et al. 2020's own data
+  # is deposited under GSE143704]
+  satellite_cell_core_hiPSC = c("ITGA7","MYF5","CDH15","NCAM1","SPRY1"),
+  # Ref: De Micheli et al. 2020, Skeletal Muscle (GEO: GSE143704); Yin et al. 2013, Physiol Rev
+
+  myoblast_proliferation_cycle = c("MYOD1","MYF5","MKI67","TOP2A","PCNA","CCNB1",
+                                   "CDK1","E2F1","NUSAP1","HMGB2","UBE2C","AURKB","RRM2"),
+  # Ref: Hicks et al. 2025 [unverified, see note under developmental_embryonic];
+  # Trapnell et al. 2014 pseudotime 
+  myotube_differentiation_fusion = c("MYOG","MEF2C","MYMK","MYMX","MYH3","MYH8",
+                                     "CKM","DES","DNM2","ACTA1"), #similar to the previous (consider that)
+  # Ref: Chal et al. 2015, Nat Biotechnol; Sampath et al. 2018, Skeletal Muscle
+  # ("Myoblast fusion confusion: the resolution begins" 
+  # Hicks 2025 [unverified, see note above]
+  myogenic_regulators_axis = c("PAX3","PAX7","MYF5","MYOD1","MYOG","MEF2C","MYF6"),
+  # Ref: Weintraub et al. 1991, Science 251:761-766; Rudnicki et al. 1993, Cell 75:1351-1359
+  # ===============================
+  # NMJ / ECM / NICHE
+  # ===============================
+  neuromuscular_junction = c("AGRN","LRP4","MUSK","DOK7","RAPSN","COLQ","CHRNA1",
+                             "CHRNB1","CHRND","CHRNE","CHRNG","ACHE","UTRN"),
+  # Ref: Burden et al. 2018 (hiPSC NMJ) 
+  muscle_ecm_basement = c("LAMA2","LAMC1","COL6A1","COL6A2","COL6A3","COL1A1",
+                          "COL1A2","COL3A1","FN1","SPP1","LUM","DCN","DAG1",
+                          "ITGA7","THY1","COL4A1","COL4A2","COL5A1"),
+  # Ref: De Micheli et al. 2020, Skeletal Muscle; Saini et al. 2021 
+  fibro_adipogenic_progenitors = c("PDGFRA","COL1A1","COL3A1","DCN","LUM","CXCL14",
+                                   "THY1","GPC6","FBN1","DPT","POSTN","PCOLCE"),
+  # Ref: De Micheli et al. 2020, Skeletal Muscle; Front Cell Dev Biol 2025
+  # 2022 and 2024 FAP reviews in Front Cell Dev Biol
+  atrophy_stress = c("FBXO32","TRIM63","DDIT4","GADD45A","ATF4","FOXO3","PSMA1",
+                     "PSMB1","SESN1","SESN3","EIF4EBP1","PPP1R15A"),
+  # Ref: Bodine et al. 2001, Science 294:1704-1708; Gomes et al. 2001, PNAS 98:14440-14445
+  # Milan et al. 2021
+  # ===============================
+  # PLURIPOTENCY → MYOGENIC (hiPSC/hESC)
+  # ===============================
+  pluripotency_core = c("POU5F1","NANOG","SOX2","PRDM14","DPPA2","DPPA4","ZFP42",
+                        "DNMT3A","DNMT3B"),
+  # Ref: Theunissen et al. 2016, Cell Stem Cell 19:502-515; Nichols & Smith 2009,
+  # Cell Stem Cell 4:487-492
+  # Ref.Nichols & Smith "Naive and Primed Pluripotent States" is 2009, not 2012
+  naive_pluripotency = c("KLF17","KLF4","TFCP2L1","DNMT3L","DPPA3","TBX3","ESRRB","SUSD2"),
+  # Ref: Collier et al. 2022 (Maintenance of Human Naive Pluripotent Stem Cells);
+  # Pastor et al. 2016, Cell Stem Cell 18:323-329
+  # Ref: "Naive human pluripotent cells feature a methylation landscape devoid
+  # of blastocyst or germline memory" is 2016, not 2018
+  mesoderm_specification = c("MESP1","PDGFRA","KDR","ISL1","HAND1","HAND2","GATA4",
+                             "TBX5","NKX2-5","MEF2C","FGF8","EOMES","TBXT"),
+  # Ref: Chan et al. 2013, Cell Stem Cell 12:587-601 ("Mesp1 patterns mesoderm into
+  # cardiac, hematopoietic, or skeletal myogenic progenitors" -- confirmed, strong fit);
+  # Loh et al. 2016, Cell 166:451-467 -- confirmed;
+  # Hicks 2025 [unverified, see note under developmental_embryonic]
+  early_myogenic_commitment = c("PAX3","PAX7","MYF5","MYOD1","MET","ITGA7","FGFR4","LBX1","MYOG"),
+  # Ref: Chal et al. 2015, Nat Biotechnol -- confirmed; Hicks et al. 2025
+
+hiPSC_to_mesoderm_transition= c("TBXT", "MESP1", "MIXL1", "GSC", "EOMES"),
+# No Ref given in the original -- not evaluated (nothing to correct).
+oxidative_stress_antioxidant=c("NQO1", "HMOX1", "TXNIP", "FTH1", "MT1E", "MT2A", "SLC7A11", "SRXN1")
+# No Ref given in the original -- not evaluated (nothing to correct).
+)
+```
+
+####add new NOVO signatures
+#Ref: bioRxiv 2026.01.16.698404
+# ===============================
+# NOVO SIGNATURES
+# Derived from: bioRxiv 2026.01.16.698404 — bioengineered human 3D muscle
+# tissue (fibrin hydrogel bundles), matured to day 21-35, profiled for
+# structural/metabolic maturation, contraction training, B2AR pharmacology,
+# insulin/GLUT4 responsiveness, and GYS1-dependent glycogen metabolism.
+# The four Fig 2A fiber-type/structural panels were directly verified against
+# a user-provided screenshot of Fig 2A (bioRxiv 2026.01.16.698404) and of
+# Fig 7/S7 from ref [33] (van der Wal et al. 2023, Stem Cell Reports
+# 18:1954-1971). Ref 33's Fig 7D heatmap is a ~37-gene combined panel
+# (ACTA1, ACTN2, ATP1A2, ATP2A1, CASQ2, CKM, DES, DMD, MYBPC1/2, MYH2/3/6/7/8,
+# MYLPF, MYL1/2/3/6/6B, NEB, OBSCN, RYR1, TMOD1, TNNC1/2, TNNI1/2, TNNT1/2/3,
+# TPM1/2/3/4, TTN, VIM) that the bioRxiv authors evidently re-split into the
+# 4 categories below
+# ===============================
+
+```{r}
+
+gs_NOVO <- list(
+
+  # ---- Fig 2A: heatmap of slow-twitch / fast-twitch / fiber-type-independent
+  # structural / "not expressed in mature skeletal muscle" gene panels.
+  # Verified directly against the Fig 2A screenshot (bioRxiv
+  # 2026.01.16.698404) -- all 4 lists match the figure gene-for-gene, with
+  # one correction noted below.
+  slow_twitch_myofiber_NOVO = c("TNNT1","MYL3","TPM3","MYBPC1","ATP2A2","TPM2","MYL6B",
+                                 "MYH7","TNNI1","TNNC1","MYL2"),
+  # [corrected: added TPM3, which is present in the Fig 2A slow-twitch panel
+  # but was missing from the original draft -- now matches the figure
+  # exactly, 11/11 genes]. Overlaps substantially with existing fiber_type_I_slow.
+
+  fast_twitch_myofiber_NOVO = c("TPM1","MYBPC2","ATP2A1","MYH2","MYL1","TNNI2",
+                                 "TNNC2","TNNT3","MYLPF","ACTN3"),
+  # Matches Fig 2A fast-twitch panel exactly, 10/10 genes.
+  # [corrected typo: ATPA2A1 -> ATP2A1]. Overlaps substantially with
+  # existing fiber_type_IIa_fast.
+
+  skeletal_muscle_fiber_type_independent_NOVO = c("TPM4","VIM","DES","OBSCN","ACTN2",
+                                                    "RYR1","DMD","TMOD1","ACTA1","CKM",
+                                                    "NEB","TTN"),
+  # Matches Fig 2A "Skeletal muscle" panel exactly, 12/12 genes. [renamed from
+  # "scheletal_muscle_NOVO": fixed spelling, matched to the paper's actual
+  # category label]. Partial overlap with existing sarcomere_core.
+
+  genes_not_in_mature_skeletal_muscle_NOVO = c("MYH8","MYH6","MYH3","MYL6","MYL4",
+                                                 "TNNT2","MYOG"),
+  # Matches Fig 2A "Non skeletal muscle" panel exactly, 7/7 genes. MYH8/MYH3
+  # also independently confirmed in ref 33's own text (embryonic MYH3/
+  # neonatal MYH8 decline with maturation). [renamed from
+  # "non_scheletal_muscle_NOVO": fixed spelling, matched to the paper's
+  # actual category label]. Conceptually overlaps existing developmental_embryonic.
+
+  glycogen_metabolism_NOVO = c("GYS1","PYGM","PHKA1","PHKB","PHKG1","GBE1",
+                                "PPP1R3A","PPP1R3C","GYG1","PGM1","UGP2","STBD1"),
+  # GYS1 = glycogen synthase (Fig 7 knockdown: endurance/recovery under
+  # glucose starvation); PYGM/PHKA1/B/G1 = glycogen phosphorylase &
+  # phosphorylase kinase (Fig 2F, explicitly quantified). GBE1/PPP1R3A/C/
+  # GYG1/PGM1/UGP2/STBD1 added as canonical glycogen synthesis/breakdown
+  # pathway members (not individually assayed in the paper).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 2F, Fig 7.
+
+  ampk_energy_sensing_NOVO = c("PRKAA1","PRKAA2","PRKAB1","PRKAB2","PRKAG1",
+                                "PRKAG3","STK11","CAB39","CAB39L"),
+  # Muscle-dominant AMPK alpha2/beta2/gamma1/gamma3 subunits, upregulated
+  # with maturation (Fig 2G, western blot). STK11/CAB39/CAB39L = canonical
+  # upstream LKB1 kinase complex, added for pathway completeness.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 2G.
+
+  beta2_adrenergic_response_NOVO = c("ADRB2","PPARGC1A","NR4A1","NR4A2","NR4A3",
+                                      "PGK1","CREB1","LIPE","RPS6","GYS1"),
+  # Acute clenbuterol (B2AR agonist) phospho-targets (LIPE=pHSL, CREB1=pCREB,
+  # RPS6=pRPS6) and chronic B2AR-responsive transcripts (PPARGC1A, NR4A1/3,
+  # PGK1, GYS1) exactly as reported. NR4A2 added as a paralog for completeness.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 5A-B.
+
+  insulin_glut4_signaling_NOVO = c("SLC2A4","SLC2A1","SLC2A3","INSR","IRS1",
+                                    "IRS2","PIK3R1","AKT2","TBC1D4","RAB10"),
+  # SLC2A4/1/3 (GLUT4/1/3) shift explicitly measured (Fig 6, Fig S3),
+  # reflecting maturation of insulin responsiveness. INSR/IRS1/2/PIK3R1/
+  # AKT2/TBC1D4/RAB10 = canonical insulin -> GLUT4 translocation cascade,
+  # added for pathway completeness (not individually assayed).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 6, Fig S3.
+
+  exercise_training_adaptation_NOVO = c("SLC2A4","HK2","PDHA1","PPARGC1A",
+                                         "NR4A3","VEGFA"),
+  # SLC2A4 (GLUT4), HK2 (HKII), PDHA1 (PDH-E1a) explicitly increased with
+  # 12-day contraction training (Fig 4C, protein level). PPARGC1A/NR4A3/
+  # VEGFA = canonical endurance-training response genes, added for context.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 4A-C.
+
+  hypoxia_glucose_fatigue_stress_NOVO = c("HIF1A","SLC16A1","SLC16A3","PDK1",
+                                           "LDHA","PFKFB3","VEGFA","CA9","BNIP3"),
+  # Functional phenotype (accelerated fatigue + lactate accumulation under
+  # hypoxia/glucose starvation) is reported (Fig 3E,3H) but no transcriptomic
+  # panel was profiled for this specific experiment — genes here are the
+  # canonical HIF1A hypoxia-response/lactate-shuttle module, inferred rather
+  # than directly measured. Treat as a mechanistic hypothesis signature.
+  # Ref: bioRxiv 2026.01.16.698404, Fig 3E, Fig 3H (phenotype only).
+
+  tissue_maturation_3D_vs_monolayer_NOVO = c("MYBPC1","MYL1","MYH2","SDHA","DMD")
+  # MYBPC1/MYL1/MYH2 = sarcomeric/contractile genes explicitly induced in
+  # day-21 3D bioengineered tissue vs 7-day 2D monolayer myotubes (Fig 1D
+  # volcano plot). SDHA = exemplar of the "progressive mitochondrial
+  # maturation" DEG cluster (cluster 2); DMD = exemplar of the "early
+  # structural consolidation" DEG cluster (cluster 4) (Fig 1F-G).
+  # Ref: bioRxiv 2026.01.16.698404, Fig 1D, Fig 1G.
+)
+ 
+# To merge into your existing gs list:
+gs <- c(gs, gs_NOVO)
+```
+
+
+####make plots
+
+```{r}
+for (sig_name in names(gs)) {
+  
+  message("Plotting gene set: ", sig_name)
+  
+  p <- plot_cells(
+    cds_ger_opti,
+    genes = gs[[sig_name]],
+    label_cell_groups = FALSE,
+    show_trajectory_graph = FALSE
+  ) +
+    labs(
+      x = "UMAP 1",
+      y = "UMAP 2",
+      title = sig_name
+    ) +
+    scale_color_viridis(option = "E", discrete = FALSE)
+  
+  print(p)
+  
+  ggsave(
+    filename = paste0(fname_prefix_dotplot, "_UMAP_", sig_name, ".pdf"),
+    plot = p,
+    width = 8,
+    height = 6
+  )
+}
+```
+###convert to Seurat and add cell cycle feature
+
+```{r}
+#load("scratch/monocle_AB015.RData") #it was 
+
+cell_metadata=as.data.frame(cds_ger_opti@colData@listData)
+seurat_ger_opti_AB015<-as.Seurat(cds_ger_opti, assay = NULL)
+###add cell cycle scores
+exp.mat <- read.table(file = "scratch/cell_cicle_reg_genes/nestorawa_forcellcycle_expressionMatrix.txt", header = TRUE, 
+    as.is = TRUE, row.names = 1)
+# We can# segregate this list into markers of G2/M phase and markers of S phase
+s.genes <- cc.genes$s.genes #s phase genes
+g2m.genes <- cc.genes$g2m.genes #G2phase genes
+
+# Use fewer bins than 24 (e.g. 10 or 5)
+seurat_ger_opti_AB015 <- CellCycleScoring(
+  seurat_ger_opti_AB015,
+  s.features   = s.genes,
+  g2m.features = g2m.genes,
+  set.ident    = TRUE,
+  nbin         = 20   # or 5 if your dataset is very small
+)
+
+colData(cds_ger_opti)$S_score=seurat_ger_opti_AB015@meta.data[["S.Score"]]
+colData(cds_ger_opti)$G2M_score=seurat_ger_opti_AB015@meta.data[["G2M.Score"]]
+colData(cds_ger_opti)$Phase=seurat_ger_opti_AB015@meta.data[["Phase"]]
+
+meta_ger_opti=as.data.frame(cds_ger_opti@colData@listData)###7603
+cell_metadata=meta_ger_opti
+
+meta_ger_opti_AB015=meta_ger_opti
+
+ggplot(meta_ger_opti, aes(x = UMAP_1_monocle_ger_opti, y = UMAP_2_monocle_ger_opti)) +
+    geom_point(aes(color = Phase),
+               size=0.8)+
+  labs(x = "UMAP 1", y = "UMAP 2", title = "cell cycle phase")+
+  scale_color_manual(name = "cell cycle phase",
+                        values=c("#56B4E9","#009E73","#D55E00"))#+facet_grid(~factor(sample_id,levels = c("E8_R2","E8_R3","M8_R2","M8_R3","B8_R2","B8_R3")))
+ggsave(filename = paste0(fname_prefix_UMAP, "_", "UMAP_cellcycle_phase_ger_opti.pdf"),
+     width = 5, height = 5)
+  
+
+plot_feature=c("S_score", "G2M_score")
+
+for (feature in plot_feature) {
+  
+  p <- ggplot(meta_ger_opti, aes(x = UMAP_1_monocle_ger_opti, y = UMAP_2_monocle_ger_opti)) +
+    geom_point(aes_string(color = feature), size = 0.8) +
+    labs(
+      x = "UMAP 1",
+      y = "UMAP 2",
+      title = feature
+    ) +
+    scale_color_viridis(option = "E", discrete = FALSE) #+
+    #facet_grid(~sample_id)
+  
+  ggsave(
+    filename = paste0(fname_prefix_UMAP, "_", "UMAP_ger_opti_", feature, ".pdf"),
+    plot = p,
+    width = 5,
+    height = 5
+  )
+}
+
+
+```
+
+###add features
+```{r}
+fix_features <- function(object, genes) {
+  present <- intersect(genes, rownames(object))
+  if (length(present) == 0L) warning("No genes found from set: ", paste(head(genes, 5), collapse=", "))
+  present
+}
+
+# Compute module scores for every set in `gs`
+for (nm in names(gs)) {
+  feats <- fix_features(seurat_ger_opti_AB015, gs[[nm]])
+  # skip empty sets
+  if (length(feats) == 0L) next
+  seurat_ger_opti_AB015 <- AddModuleScore(
+    object   = seurat_ger_opti_AB015,
+    features = list(feats),        # one set at a time
+    nbin = 20,                    # default is 24; adjust if needed
+    name     = paste0(nm, "_score")# Seurat will append "1"
+  )
+  # Move the created column <name>1 into a clean column <name>
+  raw_col <- paste0(nm, "_score1")
+  if (raw_col %in% colnames(seurat_ger_opti_AB015@meta.data)) {
+    seurat_ger_opti_AB015@meta.data[[nm]] <- seurat_ger_opti_AB015@meta.data[[raw_col]]
+    # optional: drop the generated column
+    seurat_ger_opti_AB015@meta.data[[raw_col]] <- NULL
+  }
+}
+
+common_cells <- intersect(colnames(seurat_ger_opti_AB015), colnames(cds_ger_opti))
+if (length(common_cells) == 0L) stop("No overlapping cells between Seurat and cds.")
+
+for (nm in names(gs)) {
+  if (nm %in% colnames(seurat_ger_opti_AB015@meta.data)) {
+    vec <- seurat_ger_opti_AB015@meta.data[common_cells, nm, drop=TRUE]
+    colData(cds_ger_opti)[common_cells, nm] <- vec
+  }
+}
+
+feat_to_plot <- c(names(gs))
+
+for (feat in feat_to_plot) {
+  if (!feat %in% colnames(colData(cds_ger_opti))) next
+  p <- plot_cells(
+    cds_ger_opti,
+    reduction_method   = "UMAP",
+    color_cells_by     = feat,
+    label_cell_groups  = TRUE,
+    show_trajectory_graph = FALSE
+  ) +
+    labs(title = feat, x = "UMAP 1", y = "UMAP 2") +
+    ggplot2::scale_color_viridis_c(option = "E")
+  ggsave(paste0(fname_prefix_dotplot, "_UMAP_sign_", feat, ".pdf"), p, width = 4, height = 3)
+}
+
+meta_ger_opti=as.data.frame(cds_ger_opti@colData@listData)
+
+Rdata_filename = paste0(fname_prefix_R, "_monocle_cds_clustered_ger_opti.RData")
+save(cds_ger_opti,meta_ger_opti,
+     file = Rdata_filename)
+
+Rdata_filename = paste0(fname_prefix_R, "_seurat_clustered_ger_opti.RData")
+save(seurat_ger_opti_AB015,meta_ger_opti,
+     file = Rdata_filename)
+```
+
+#####make violin plots of signatures
+
+```{r}
+# ── violin plots for all module scores ─────────────────────────────────────
+# Colour palette (Okabe-Ito, 4 samples)
+samp_pal <- c(
+  "OPTIOXd4"= "#CC79A7",
+  "OPTIOXd7"= "#F0E442",
+  "GERALTd4"= "#56B4E9",
+  "GERALTd7"= "#999999"
+)
+
+# Nice labels for x axis
+cluster_labels <- c(
+  "1" = "Myogenic transition progenitors",#fail diff
+  "2" = "Advanced myotubes",
+  "3" = "MYOD1-high myotubes-1",#non myogenic
+  "4" = "Transitional advanced myotubes", #Miotubi maturi, MYL2+, alta biomassa mitocondriale
+  "5" = "MYOD1-high myotubes-2")
+
+# Ordine biologico (myogenic first, non-myogenic last)
+cluster_order_names <- c("Advanced myotubes",
+  "Transitional advanced myotubes",
+  "MYOD1-high myotubes-1",
+  "MYOD1-high myotubes-2",
+  "Myogenic transition progenitors"
+)
+
+# Ricava l'ordine degli ID numerici corrispondente
+cluster_order_ids <- names(cluster_labels)[match(cluster_order_names, cluster_labels)]
+
+
+# Colori associati ai NOMI (non ai numeri)
+
+my_colors <- c("Myogenic transition progenitors"="#24ff24",
+               "Advanced myotubes"="#D55E00",
+               "MYOD1-high myotubes-1"="#b6dbff",
+               "Transitional advanced myotubes"="#0072B2",
+               "MYOD1-high myotubes-2"="#56B4E9")
+  
+
+score_labels <- c(
+
+  # ===============================
+  # CELL CYCLE / RIBOSOME TONE
+  # ===============================
+
+  cellcycle_s                    = "cell cycle S phase",
+  cellcycle_g2m                  = "cell cycle G2/M",
+  ribosome_tone                  = "ribosome tone",
+
+  # ===============================
+  # FIBER-TYPE / METABOLIC PROGRAMS
+  # ===============================
+
+  fiber_type_I_slow              = "fiber type I slow",
+  fiber_type_IIa_fast            = "fiber type IIa fast",
+  fiber_type_IIx_fast            = "fiber type IIx fast",
+  developmental_embryonic        = "developmental / embryonic",
+  myotube_fusion_active          = "active myotube fusion",
+  sarcomere_core                 = "sarcomere core",
+  nascent_myotube_postfusion     = "nascent post-fusion myotube",
+  calcium_excitation_contraction = "calcium excitation-contraction",
+  oxidative_mitochondrial        = "oxidative mitochondrial",
+  glycolytic_fast                = "glycolytic fast",
+
+  # ===============================
+  # STEM / MYOGENIC LINEAGES
+  # ===============================
+
+  satellite_cell_core            = "satellite cell core",
+  satellite_cell_core_hiPSC      = "satellite cell core hiPSC",
+  myoblast_proliferation_cycle   = "myoblast proliferation cycle",
+  myotube_differentiation_fusion = "myotube differentiation & fusion",
+  myogenic_regulators_axis       = "myogenic regulators axis",
+
+  # ===============================
+  # NMJ / ECM / NICHE
+  # ===============================
+
+  neuromuscular_junction         = "neuromuscular junction",
+  muscle_ecm_basement            = "muscle ECM / basement membrane",
+  fibro_adipogenic_progenitors   = "fibro-adipogenic progenitors",
+  atrophy_stress                 = "atrophy / stress",
+
+  # ===============================
+  # PLURIPOTENCY → MYOGENIC
+  # ===============================
+
+  pluripotency_core              = "pluripotency core",
+  naive_pluripotency             = "naive pluripotency",
+  mesoderm_specification         = "mesoderm specification",
+  early_myogenic_commitment      = "early myogenic commitment",
+  hiPSC_to_mesoderm_transition   = "hiPSC-to-mesoderm transition",
+  oxidative_stress_antioxidant   = "oxidative stress / antioxidant",
+
+
+###novo dataset
+  slow_twitch_myofiber_NOVO =  "slow twitch myofiber",
+  fast_twitch_myofiber_NOVO =  "fast twitch myofiber",
+  skeletal_muscle_fiber_type_independent_NOVO =
+  "skeletal muscle, fiber-type independent",
+genes_not_in_mature_skeletal_muscle_NOVO =
+  "genes not expressed in mature skeletal muscle",
+  glycogen_metabolism_NOVO = "glycogen metabolism",
+  ampk_energy_sensing_NOVO = "AMPK energy sensing",
+  beta2_adrenergic_response_NOVO = "beta2 adrenergic response",
+  insulin_glut4_signaling_NOVO = "insulin / GLUT4 signaling",
+  exercise_training_adaptation_NOVO = "exercise training adaptation",
+  hypoxia_glucose_fatigue_stress_NOVO = "hypoxia / glucose / fatigue / stress",
+  tissue_maturation_3D_vs_monolayer_NOVO = "tissue maturation 3D vs monolayer"
+)
+# ── data ─────────────────────────────────────────────────────────────────────
+meta_ger_opti <- as.data.frame(seurat_ger_opti_AB015@meta.data)
+
+meta_ger_opti$monocle_clusters <- factor(
+  meta_ger_opti$monocle_clusters,
+  levels = cluster_order_ids
+)
+
+# merge cluster colours into meta for violin fill
+meta_ger_opti <- meta_ger_opti %>%
+  left_join(cluster_tab, by = c("monocle_clusters" = "monocle_cluster"))
+
+# per-sample medians (for the coloured dots)
+sample_medians <- meta_ger_opti %>%
+  group_by(monocle_clusters, sample) %>%
+  summarise(across(all_of(names(score_labels)), median, na.rm = TRUE),
+            .groups = "drop")
+
+# named vector for scale_fill_manual: cluster -> colour
+cluster_labels_ordered <- cluster_labels[cluster_order_ids]
+
+violin_fill_pal <- cluster_tab %>%
+  dplyr::slice(match(cluster_order_ids, monocle_cluster)) %>%
+  { setNames(.$cluster_color, .$monocle_cluster) }
+
+#violin_fill_pal  <- setNames(cluster_tab$cluster_color, cluster_tab$monocle_cluster)
+
+# ── plot loop ─────────────────────────────────────────────────────────────────
+for (module in names(score_labels)) {
+
+  if (!module %in% colnames(meta)) next
+  message("Plotting: ", module)
+
+  med_long <- sample_medians %>%
+    dplyr::select(monocle_clusters, sample, value = all_of(module))
+
+  p <- ggplot(meta_ger_opti, aes(x = monocle_clusters, y = .data[[module]])) +
+
+    # violin: fill = cluster colour, white interior, coloured outline
+    geom_violin(
+      aes(fill = monocle_clusters, color = monocle_clusters),
+      alpha     = 0.25,       # light fill so dots remain visible
+      trim      = FALSE,
+      scale     = "width",
+      linewidth = 0.5
+    ) +
+
+    # coloured dots = per-sample median
+    geom_point(
+      data  = med_long,
+      aes(x = monocle_clusters, y = value, color = sample),
+      size     = 3,
+      shape    = 16,
+      position = position_jitter(width = 0.05, seed = 42)
+    ) +
+
+    # violin fill = cluster colours (light, alpha already set above)
+    scale_fill_manual(
+      values = violin_fill_pal,
+      guide  = "none"          # don't show fill in legend
+    ) +
+
+    # colour scale shared by violin outline AND sample dots
+    # we need two separate scales: one for violin outline, one for dots
+    # easiest: use fill for violin, colour for dots only
+    scale_color_manual(
+      values = samp_pal,
+      name   = "Condition",
+      breaks = names(samp_pal)   # only show sample colours in legend
+    ) +
+scale_x_discrete(
+  labels = cluster_labels_ordered,
+  limits = cluster_order_ids
+)
+    #scale_x_discrete(labels = cluster_labels) +
+
+    labs(
+      x     = "",
+      y     = "AddModuleScore",
+      title = score_labels[[module]]
+    ) +
+
+    theme_classic(base_size = 11) +
+    theme(
+      plot.background    = element_rect(fill = "white", color = NA),
+      panel.background   = element_rect(fill = "white", color = NA),
+      panel.grid.major.y = element_line(color = "#eeeeee", linewidth = 0.4),
+      panel.grid.major.x = element_blank(),
+      axis.line          = element_line(color = "#111111"),
+      axis.ticks         = element_line(color = "#111111"),
+      axis.text          = element_text(color = "#333333"),
+      axis.text.x        = element_text(angle = 40, hjust = 1, size = 9),
+      axis.title.y       = element_text(color = "#333333"),
+      plot.title         = element_text(color = "#111111", face = "bold", hjust = 0.5),
+      legend.background  = element_rect(fill = "white", color = NA),
+      legend.text        = element_text(color = "#333333"),
+      legend.title       = element_text(color = "#333333"),
+      legend.key         = element_rect(fill = "white", color = NA)
+    )
+
+  ggsave(
+    filename = paste0(fname_prefix_violin, "_violin_", module, ".pdf"),
+    plot     = p,
+    width    = 6,
+    height   = 6
+  )
+}
+
+```
+####save files
+```{r}
+###save all environments
+
+write.csv(meta_ger_opti, file= paste0(fname_prefix_csv, "_", "meta_ger_opti_annotated.csv"), row.names=FALSE)
+
+Rdata_filename = paste0(fname_prefix_R, "_monocle_seurat_cds_ger_opti_clustered_annotated_FINAL_AB015.RData")
+save(cds_ger_opti,meta_ger_opti,seurat_ger_opti_AB015,
+     file = Rdata_filename)
+Rdata_filename = paste0(fname_prefix_R, "_seurat_ger_opti_annotated_AB015.RData")
+save(meta_ger_opti,seurat_ger_opti_AB015,
+     file = Rdata_filename)
+
+saveRDS(cds_ger_opti, file = paste0(fname_prefix_R,"cds_ger_opti_annotated.rds"))
+saveRDS(seurat_ger_opti_AB015, file = paste0(fname_prefix_R,"seurat_ger_opti_annotated.rds"))
+
+```
+#####calculate % cells per GER/OPTI cluster
+
+```{r}
+
+# -------------------------------------------------------------------------
+# Sample and cluster order
+# -------------------------------------------------------------------------
+
+sample_order_ger_opti <- c(
+  "OPTIOXd4",
+  "GERALTd4",
+  "OPTIOXd7",
+  "GERALTd7"
+)
+
+cluster_order_names_ger_opti <- c(
+  "Myogenic transition progenitors",
+  "MYOD1-high myotubes-1",
+  "MYOD1-high myotubes-2",
+  "Advanced myotubes",
+  "Transitional advanced myotubes"
+)
+
+cluster_order_ids_ger_opti <- names(cluster_labels)[
+  match(cluster_order_names_ger_opti, cluster_labels)
+]
+
+if (any(is.na(cluster_order_ids_ger_opti))) {
+  stop(
+    "Some cluster_order_names_ger_opti were not found in cluster_labels: ",
+    paste(cluster_order_names_ger_opti[is.na(cluster_order_ids_ger_opti)], collapse = ", ")
+  )
+}
+
+cluster_name_pal_ger_opti <- setNames(
+  cluster_tab_ger_opti$cluster_color,
+  cluster_tab_ger_opti$cluster_name
+)
+
+cluster_name_pal_ger_opti <- cluster_name_pal_ger_opti[
+  cluster_order_names_ger_opti
+]
+
+# -------------------------------------------------------------------------
+# Calculate percentage of cells per cluster per sample
+# -------------------------------------------------------------------------
+
+meta_to_use <- meta_ger_opti %>%
+  filter(sample %in% sample_order_ger_opti) %>%
+  mutate(
+    sample = factor(sample, levels = sample_order_ger_opti),
+    monocle_clusters = as.character(monocle_clusters),
+    cluster_name = as.character(cluster_name)
+  )
+
+tot <- table(meta_to_use$sample)
+
+df <- table(meta_to_use$monocle_clusters, meta_to_use$sample)
+df <- as.data.frame(df)
+colnames(df) <- c("monocle_cluster", "sample", "freq")
+
+total <- as.data.frame(tot)
+colnames(total) <- c("sample", "tot")
+
+percent_cl_ger_opti <- df %>%
+  left_join(total, by = "sample") %>%
+  mutate(
+    tot = as.numeric(tot),
+    frxn = 100 * freq / tot
+  ) %>%
+  filter(freq != 0) %>%
+  left_join(cluster_tab_ger_opti, by = "monocle_cluster") %>%
+  mutate(
+    sample = factor(sample, levels = sample_order_ger_opti),
+    monocle_cluster = factor(monocle_cluster, levels = cluster_order_ids_ger_opti),
+    cluster_name = factor(cluster_name, levels = cluster_order_names_ger_opti)
+  )
+
+# Safety checks
+stopifnot(all(!is.na(percent_cl_ger_opti$cluster_name)))
+stopifnot(all(!is.na(percent_cl_ger_opti$cluster_color)))
+
+# -------------------------------------------------------------------------
+# Barplot
+# -------------------------------------------------------------------------
+
+p_percent_ger_opti <- ggplot(
+  percent_cl_ger_opti,
+  aes(
+    x = sample,
+    y = frxn,
+    fill = cluster_name
+  )
+) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(
+    values = cluster_name_pal_ger_opti,
+    drop = FALSE
+  ) +
+  labs(
+    x = "",
+    y = "% cells per sample",
+    fill = "cluster"
+  ) +
+  theme_bw()
+
+p_percent_ger_opti
+
+ggsave(
+  filename = paste0(fname_prefix_mosaic, "_percent_cells_ger_opti_subsampled.pdf"),
+  plot = p_percent_ger_opti,
+  width = 5,
+  height = 5
+)
+
+stat_filename <- paste0(fname_prefix_stat, "_percent_cells_ger_opti_subsampled.csv")
+
+write.csv(
+  percent_cl_ger_opti,
+  stat_filename,
+  quote = FALSE,
+  row.names = FALSE
+)
+```
+#####fisher exact test for GER/OPTI subsampled clusters
+
+```{r}
+
+pairwise_cluster_fisher <- function(meta,
+                                    cluster_col = "monocle_clusters",
+                                    sample_col = "sample",
+                                    pairs = list(
+                                      c("OPTIOXd4", "GERALTd4"),
+                                      c("OPTIOXd7", "GERALTd7"),
+                                      c("OPTIOXd4", "OPTIOXd7"),
+                                      c("GERALTd4", "GERALTd7")
+                                    )) {
+  
+  clusters <- sort(unique(as.character(meta[[cluster_col]])))
+  
+  res <- map_dfr(pairs, function(pair) {
+    s1 <- pair[1]
+    s2 <- pair[2]
+    
+    meta_sub <- meta %>%
+      filter(.data[[sample_col]] %in% c(s1, s2)) %>%
+      mutate(
+        cluster_chr = as.character(.data[[cluster_col]]),
+        sample_chr = as.character(.data[[sample_col]])
+      )
+    
+    n1_total <- sum(meta_sub$sample_chr == s1)
+    n2_total <- sum(meta_sub$sample_chr == s2)
+    
+    map_dfr(clusters, function(cl) {
+      n1_in <- sum(meta_sub$sample_chr == s1 & meta_sub$cluster_chr == cl)
+      n2_in <- sum(meta_sub$sample_chr == s2 & meta_sub$cluster_chr == cl)
+      
+      n1_out <- n1_total - n1_in
+      n2_out <- n2_total - n2_in
+      
+      mat <- matrix(
+        c(
+          n1_in, n1_out,
+          n2_in, n2_out
+        ),
+        nrow = 2,
+        byrow = FALSE,
+        dimnames = list(
+          c("in_cluster", "out_cluster"),
+          c(s1, s2)
+        )
+      )
+      
+      ft <- fisher.test(mat)
+      
+      tibble(
+        comparison = paste0(s1, "_vs_", s2),
+        sample_1 = s1,
+        sample_2 = s2,
+        monocle_cluster = cl,
+        count_1 = n1_in,
+        total_1 = n1_total,
+        frac_1 = 100 * n1_in / n1_total,
+        count_2 = n2_in,
+        total_2 = n2_total,
+        frac_2 = 100 * n2_in / n2_total,
+        diff_frac = (100 * n1_in / n1_total) - (100 * n2_in / n2_total),
+        odds_ratio = unname(ft$estimate),
+        conf_low = ft$conf.int[1],
+        conf_high = ft$conf.int[2],
+        p_value = ft$p.value
+      )
+    })
+  }) %>%
+    group_by(comparison) %>%
+    mutate(p_adj_BH = p.adjust(p_value, method = "BH")) %>%
+    ungroup()
+  
+  res
+}
+
+meta_fisher_ger_opti <- meta_ger_opti %>%
+  filter(sample %in% sample_order_ger_opti) %>%
+  mutate(
+    monocle_clusters = as.character(monocle_clusters),
+    sample = as.character(sample)
+  )
+
+stat_pairs_ger_opti <- pairwise_cluster_fisher(
+  meta = meta_fisher_ger_opti,
+  cluster_col = "monocle_clusters",
+  sample_col = "sample"
+)
+
+stat_pairs_ger_opti <- stat_pairs_ger_opti %>%
+  mutate(
+    comparison = factor(
+      comparison,
+      levels = c(
+        "OPTIOXd4_vs_GERALTd4",
+        "OPTIOXd7_vs_GERALTd7",
+        "OPTIOXd4_vs_OPTIOXd7",
+        "GERALTd4_vs_GERALTd7"
+      )
+    ),
+    significant = p_adj_BH <= 0.01,
+    low_count_flag = (count_1 + count_2) < 20,
+    prop_1 = count_1 / total_1,
+    prop_2 = count_2 / total_2,
+    log2_prop_ratio = log2((prop_1 + 1e-6) / (prop_2 + 1e-6)),
+    neglog10_padj = -log10(p_adj_BH + 1e-300)
+  ) %>%
+  left_join(cluster_tab_ger_opti, by = "monocle_cluster") %>%
+  mutate(
+    cluster_name = factor(cluster_name, levels = cluster_order_names_ger_opti),
+    plot_color = ifelse(significant & !low_count_flag, cluster_color, "grey75"),
+    label_me = significant & !low_count_flag
+  )
+
+write.csv(
+  stat_pairs_ger_opti,
+  file = paste0(fname_prefix_stat, "_pairwise_cluster_fisher_ger_opti_subsampled.csv"),
+  row.names = FALSE
+)
+```
+
+#####volcano plot Fisher exact test GER/OPTI
+
+```{r}
+
+lab_dat_ger_opti <- stat_pairs_ger_opti %>%
+  filter(label_me) %>%
+  group_by(comparison) %>%
+  arrange(p_adj_BH, desc(abs(diff_frac))) %>%
+  slice_head(n = 3) %>%
+  ungroup()
+
+p_volcano_ger_opti <- ggplot(
+  stat_pairs_ger_opti,
+  aes(x = diff_frac, y = neglog10_padj)
+) +
+  geom_hline(
+    yintercept = -log10(0.01),
+    linetype = 2,
+    color = "grey50"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2,
+    color = "grey50"
+  ) +
+  geom_point(
+    aes(fill = plot_color),
+    shape = 21,
+    color = "black",
+    size = 3,
+    stroke = 0.2,
+    alpha = 0.95
+  ) +
+  scale_fill_identity() +
+  ggrepel::geom_text_repel(
+    data = lab_dat_ger_opti,
+    aes(label = cluster_name),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  facet_wrap(~ comparison, scales = "free_x") +
+  labs(
+    x = "Difference in cluster fraction (%)",
+    y = expression(-log[10](adjusted~pvalue)),
+    title = "GER/OPTI subsampled cluster-composition differences"
+  ) +
+  theme_bw()
+
+p_volcano_ger_opti
+
+ggsave(
+  filename = paste0(fname_prefix_stat, "_pairwise_cluster_volcano_ger_opti_subsampled.pdf"),
+  plot = p_volcano_ger_opti,
+  width = 10,
+  height = 7
+)
+```
+
+##DEG D4 GER vs OPTIOX
+
+
+```{r}
+DefaultAssay(seurat_ger_opti_AB015) <- "originalexp"
+
+data_matrix <- GetAssayData(
+  seurat_ger_opti_AB015,
+  assay = "originalexp",
+  slot = "data"
+)
+
+range(data_matrix)
+summary(data_matrix@x)
+
+
+Idents(seurat_ger_opti_AB015) <- "sample"
+
+DEG_D4 <- FindMarkers(
+  object = seurat_ger_opti_AB015,
+  ident.1 = "GERALTd4",
+  ident.2 = "OPTIOXd4",
+  assay = "originalexp",
+  slot = "data",
+  test.use = "wilcox",
+  only.pos = FALSE,
+  logfc.threshold = 0,
+  min.pct = 0.01,
+  features = rownames(seurat_ger_opti_AB015)
+)
+
+
+DEG_D4 <- DEG_D4 %>%
+  tibble::rownames_to_column("geneID") %>%
+  dplyr::select(
+    geneID,
+    q_value_D4 = p_val_adj,
+    logFC_D4 = avg_log2FC
+  )
+
+write.csv(DEG_D4, file= paste0(fname_prefix_csv, "_", "DEG_D4.csv"), row.names=FALSE)
+
+#Set the significance level cutoff
+sig_level <- 0.01
+#Set a fold-change cutoff
+fc_level <- log2(2)
+fc_level2 <- (log2(2))*-1
+###################################
+N=20
+
+
+DEG_D4 <- DEG_D4 %>%
+  mutate(
+    regulation = case_when(
+      q_value_D4 < sig_level & logFC_D4 >= fc_level  ~ "up",
+      q_value_D4 < sig_level & logFC_D4 <= fc_level2 ~ "down",
+      TRUE ~ "other"
+    ),
+    significant = regulation != "other",
+
+    # Protect against adjusted p-values equal to zero
+    log10_q_value = -log10(
+      pmax(q_value_D4, .Machine$double.xmin)
+    )
+  )
+```
+
+####volcano plot
+
+```{r}
+#lable top sig genes (top 20)
+
+top_genes_D4 <- DEG_D4 %>%
+  filter(significant) %>%
+  arrange(q_value_D4, desc(abs(logFC_D4))) %>%
+  slice_head(n = N)
+
+volcano_D4_top <- ggplot(
+  DEG_D4,
+  aes(x = logFC_D4, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    )
+  ) +
+  geom_text_repel(
+    data = top_genes_D4,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT day 4 versus OPTi-OX day 4",
+    subtitle = paste0(
+      "Top ", N, " DEGs; adjusted p-value < ", sig_level,
+      " and |log2FC| ≥ ", fc_level
+    ),
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_D4_top
+
+```
+
+###test DEG D4 in signatures
+
+```{r}
+gs_gene_table <- stack(gs) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = as.character(ind)
+  ) %>%
+  distinct()
+
+gs_gene_table_NOVO <- stack(gs_NOVO) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = as.character(ind)
+  ) %>%
+  distinct()
+
+DEG_D4_gs <- DEG_D4 %>%
+  left_join(
+    gs_gene_table %>%
+      group_by(geneID) %>%
+      summarise(
+        signatures = paste(sort(unique(signature)), collapse = "; "),
+        .groups = "drop"
+      ),
+    by = "geneID"
+  ) %>%
+  mutate(
+    in_gene_list = !is.na(signatures)
+  )
+
+
+DEG_D4_gs_NOVO <- DEG_D4 %>%
+  left_join(
+    gs_gene_table_NOVO %>%
+      group_by(geneID) %>%
+      summarise(
+        signatures = paste(sort(unique(signature)), collapse = "; "),
+        .groups = "drop"
+      ),
+    by = "geneID"
+  ) %>%
+  mutate(
+    in_gene_list = !is.na(signatures)
+  )
+
+significant_gs_D4 <- DEG_D4_gs %>%
+  filter(significant, in_gene_list) %>%
+  arrange(q_value_D4, desc(abs(logFC_D4)))
+
+significant_gs_D4
+
+significant_gs_NOVO_D4 <- DEG_D4_gs_NOVO %>%
+  filter(significant, in_gene_list) %>%
+  arrange(q_value_D4, desc(abs(logFC_D4)))
+
+significant_gs_NOVO_D4
+```
+####volcano with gene signatures
+```{r}
+volcano_D4_gs <- ggplot(
+  DEG_D4_gs,
+  aes(x = logFC_D4, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.6
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    )
+  ) +
+
+  # Highlight significant genes belonging to gs
+  geom_point(
+    data = significant_gs_D4,
+    shape = 21,
+    size = 2.6,
+    stroke = 0.7,
+    colour = "black",
+    aes(fill = regulation)
+  ) +
+  scale_fill_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73"
+    ),
+    guide = "none"
+  ) +
+
+  geom_text_repel(
+    data = significant_gs_D4,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT day 4 versus OPTi-OX day 4",
+    subtitle = "Labels indicate significant genes contained in the gene signatures",
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_D4_gs
+```
+###check expression and save
+
+```{r}
+volcano_D4_top
+ggsave(
+ paste0(fname_prefix_dotplot, "_D4_top20_DEG.pdf"),
+  volcano_D4_top,
+  width = 9,
+  height = 7
+)
+
+volcano_D4_gs
+ggsave(
+  paste0(fname_prefix_dotplot, "_D4_gene_signatures.pdf"),
+  volcano_D4_gs,
+  width = 9,
+  height = 7
+)
+
+```
+
+####D4 gene selection
+
+```{r}
+
+top100_GERALT <- DEG_D4 %>%
+  dplyr::filter(
+    logFC_D4 > 0,
+    q_value_D4 < 0.05
+  ) %>%
+  dplyr::arrange(
+    dplyr::desc(logFC_D4)
+  ) %>%
+  dplyr::slice_head(n = 100)
+
+top100_OPTIOX <- DEG_D4 %>%
+  dplyr::filter(
+    logFC_D4 < 0,
+    q_value_D4 < 0.05
+  ) %>%
+  dplyr::arrange(logFC_D4) %>%
+  dplyr::slice_head(n = 100)
+
+write.csv(
+  top100_GERALT,
+  paste0(fname_prefix_csv,"_top100_GERALT_vs_OPTIOX_D4.csv"),
+  row.names = FALSE)
+
+write.csv(
+  top100_OPTIOX,
+  paste0(fname_prefix_csv,"_top100_OPTIOX_vs_GERALT_D4.csv"),
+  row.names = FALSE)
+
+
+# GERALT D4: muscle-associated program
+muscle_genes <- c(
+  # Previous genes
+  "MYH7",
+  "COX7A1",
+  "FHOD3",
+  "MYL2",
+  "MYBPC1",
+  "MYOM1",
+  "ACTN2",
+  "CSRP3",
+  "PDLIM3",
+  "CKM",
+  "SETD3",
+  "COL12A1","TNNT1", "TNNI1", "TPM2", "MYL6B", "MYL1", "MYH3"
+)
+
+
+# OPTi-OX D4: neuronal-like and differentiation-state program
+neuronal_genes <- c(
+  # Previous genes
+  "SYN2",#synaptic function
+  "SERPINI1",#neuritic development and synaptic plasticity
+  "NPTX1",#diff an neuro comunication
+  "DLG2",#post synaptic scaffold protein that ancors NMDA receptors
+  "NXPH1",#synaptic protein
+  "LINGO1",#neuronal maturation/dev
+  "RBFOX1",#splicing in neurons
+  "CADM2",#neuronal connectivity
+  "GNGT1",#photoreceptor gene
+  "CDKN1C",#inhibitor of proliferation during neural program
+  "TUBA1A",#neuron migration
+  "CKB",#metabolic gene in the brain
+  "ID3"#inhibitor of myogenesis, expression promotes astrocyte differentiation
+)
+
+
+###put together the lists you want
+muscle_genes <- muscle_genes
+neuronal_genes <- neuronal_genes
+
+genes_D4_programs <- c(
+  muscle_genes,
+  neuronal_genes
+)
+
+genes_D4_present <- genes_D4_programs[
+  genes_D4_programs %in%
+    rownames(seurat_D4[["originalexp"]])
+]
+
+genes_D4_missing <- setdiff(
+  genes_D4_programs,
+  genes_D4_present
+)
+
+genes_D4_missing
+```
+
+###heatmap D4
+
+```{r}
+
+D4_program_categories <- list(
+  "GERALT D4: muscle program" = muscle_genes,
+  "OPTi-OX D4: neuronal-like program" = neuronal_genes
+)
+
+D4_gene_table_heatmap <- utils::stack(D4_program_categories) %>%
+  dplyr::transmute(
+    geneID = as.character(values),
+    signature = factor(as.character(ind), levels = names(D4_program_categories))
+  ) %>%
+  dplyr::distinct()
+
+# Generalized version of n3's make_NOVO_heatmap_cds -- takes any gene_table
+# with geneID/signature columns instead of hardcoding gs_NOVO
+make_program_heatmap_cds <- function(
+    cds,
+    gene_table,
+    group_values,
+    groups_to_keep,
+    group_labels = groups_to_keep,
+    heatmap_title,
+    palette_option = "cividis"
+) {
+
+  expression_matrix <- monocle3::normalized_counts(cds)
+
+  common_cells <- intersect(colnames(expression_matrix), names(group_values))
+  expression_matrix <- expression_matrix[, common_cells, drop = FALSE]
+  group_values <- as.character(group_values[common_cells])
+
+  cells_to_keep <- !is.na(group_values) & group_values %in% groups_to_keep
+  expression_matrix <- expression_matrix[, cells_to_keep, drop = FALSE]
+  group_values <- factor(group_values[cells_to_keep], levels = groups_to_keep)
+
+  missing_groups <- setdiff(groups_to_keep, unique(as.character(group_values)))
+  if (length(missing_groups) > 0) {
+    stop("These groups are absent from cds: ", paste(missing_groups, collapse = ", "))
+  }
+
+  requested_genes <- unique(gene_table$geneID)
+  genes_available <- intersect(requested_genes, rownames(expression_matrix))
+  genes_missing <- setdiff(requested_genes, genes_available)
+  if (length(genes_missing) > 0) {
+    message(length(genes_missing), " genes are absent from cds: ",
+            paste(genes_missing, collapse = ", "))
+  }
+  if (length(genes_available) == 0) stop("None of the requested genes is present in cds.")
+
+  expression_matrix <- expression_matrix[genes_available, , drop = FALSE]
+
+  # Average normalized expression within each group (pseudobulk mean)
+  group_design <- Matrix::sparse.model.matrix(~ 0 + group_values)
+  average_expression <- expression_matrix %*% group_design
+  average_expression <- sweep(
+    average_expression, MARGIN = 2,
+    STATS = Matrix::colSums(group_design), FUN = "/"
+  )
+  average_expression <- as.matrix(average_expression)
+  colnames(average_expression) <- groups_to_keep
+  colnames(average_expression) <- group_labels
+
+  # Gene-wise z-score ACROSS GROUPS (not across cells)
+  heatmap_zscore <- t(scale(t(average_expression)))
+  heatmap_zscore[!is.finite(heatmap_zscore)] <- 0
+
+  heatmap_rows <- gene_table %>%
+    dplyr::filter(geneID %in% rownames(heatmap_zscore)) %>%
+    dplyr::arrange(signature, geneID)
+
+  heatmap_matrix <- heatmap_zscore[heatmap_rows$geneID, , drop = FALSE]
+  rownames(heatmap_matrix) <- make.unique(heatmap_rows$geneID)
+
+  colour_limit <- max(1, abs(heatmap_matrix), na.rm = TRUE)
+
+  heatmap_colours <- circlize::colorRamp2(
+    seq(-colour_limit, colour_limit, length.out = 101),
+    viridisLite::cividis(101)
+  )
+
+  ComplexHeatmap::Heatmap(
+    heatmap_matrix,
+    name = "Gene\nz-score",
+    col = heatmap_colours,
+
+    row_split = heatmap_rows$signature,
+    row_title_rot = 0,
+    row_gap = grid::unit(2.5, "mm"),
+
+    cluster_rows = FALSE,
+    cluster_columns = FALSE,
+
+    show_row_names = TRUE,
+    row_labels = heatmap_rows$geneID,
+    row_names_gp = grid::gpar(fontsize = 8),
+
+    show_column_names = TRUE,
+    column_names_rot = 0,
+    column_names_gp = grid::gpar(fontsize = 10, fontface = "bold"),
+
+    column_title = heatmap_title,
+    column_title_gp = grid::gpar(fontsize = 13, fontface = "bold"),
+
+    heatmap_legend_param = list(
+      title = "Relative\nexpression",
+      at = c(-colour_limit, 0, colour_limit),
+      labels = c("Lower", "Mean", "Higher")
+    ),
+
+    border = TRUE
+  )
+}
+
+sample_values_D4 <- setNames(
+  as.character(SummarizedExperiment::colData(cds)$sample),
+  colnames(cds)
+)
+
+D4_heatmap_pseudobulk <- make_program_heatmap_cds(
+  cds = cds,
+  gene_table = D4_gene_table_heatmap,
+  group_values = sample_values_D4,
+  groups_to_keep = c("GERALTd4", "OPTIOXd4"),
+  group_labels = c("GERALT D4", "OPTi-OX D4"),
+  heatmap_title = "D4 muscle and neuronal-like transcriptional programs",
+  palette_option = "cividis"
+)
+
+ComplexHeatmap::draw(D4_heatmap_pseudobulk, heatmap_legend_side = "right")
+
+pdf(
+  paste0(fname_prefix_heatmap, "_D4_pseudobulk_heatmap.pdf"),
+  width = 8, height = 8
+)
+ComplexHeatmap::draw(D4_heatmap_pseudobulk, heatmap_legend_side = "right")
+dev.off()
+```
+
+###make dotplots
+
+```{r}
+D4_marker_annotation <- dplyr::bind_rows(
+  data.frame(
+    Order = seq_along(muscle_genes),
+    Program = "GERALT D4: muscle program",
+    gene_symbol = muscle_genes
+  ),
+  data.frame(
+    Order = length(muscle_genes) +
+      seq_along(neuronal_genes),
+    Program = "OPTi-OX D4: neuronal-like program",
+    gene_symbol = neuronal_genes
+  )
+)
+
+D4_marker_ids <- D4_marker_annotation$gene_symbol
+
+# Keep genes present in cds while preserving the biological order
+D4_marker_ids_present <- D4_marker_ids[
+  D4_marker_ids %in% rownames(cds)
+]
+
+setdiff(
+  D4_marker_ids,
+  D4_marker_ids_present
+)
+
+cds_D4 <- cds[
+  D4_marker_ids_present,
+  colData(cds)$sample %in% c(
+    "GERALTd4",
+    "OPTIOXd4"
+  )
+]
+
+colData(cds_D4)$sample <- factor(
+  colData(cds_D4)$sample,
+  levels = c(
+    "GERALTd4",
+    "OPTIOXd4"
+  )
+)
+
+p_D4_dotplot_monocle <- plot_genes_by_group(
+  cds_D4,
+  markers = D4_marker_ids_present,
+  group_cells_by = "sample",
+  ordering_type = "none",
+  max.size = 6
+) +
+  ggplot2::scale_colour_viridis_c(
+    option = "E",  # cividis
+    direction = 1,
+    name = "Mean\nexpression"
+  ) +
+  ggplot2::labs(
+    title = "D4 transcriptional programs",
+    x = NULL,
+    y = NULL
+  ) +
+  ggplot2::theme_bw()
+
+p_D4_dotplot_monocle
+
+ggsave(filename = paste0(fname_prefix_dotplot,"_D4_dotplot_signature.pdf"),
+      width = 3, height = 5)
+```
+
+
+##DEG D7 GER vs OPTIOX
+
+```{r}
+## DEG D7: GERALT versus OPTi-OX
+
+DefaultAssay(seurat_ger_opti_AB015) <- "originalexp"
+Idents(seurat_ger_opti_AB015) <- "sample"
+
+DEG_D7 <- FindMarkers(
+  object = seurat_ger_opti_AB015,
+  ident.1 = "GERALTd7",
+  ident.2 = "OPTIOXd7",
+  assay = "originalexp",
+  slot = "data",
+  test.use = "wilcox",
+  only.pos = FALSE,
+  logfc.threshold = 0,
+  min.pct = 0.01,
+  features = rownames(seurat_ger_opti_AB015)
+)
+
+DEG_D7 <- DEG_D7 %>%
+  tibble::rownames_to_column("geneID") %>%
+  dplyr::select(
+    geneID,
+    q_value_D7 = p_val_adj,
+    logFC_D7 = avg_log2FC
+  )
+
+write.csv(
+  DEG_D7,
+  file = paste0(fname_prefix_csv, "_DEG_D7.csv"),
+  row.names = FALSE
+)
+
+# Cutoffs
+sig_level <- 0.01
+fc_level  <- log2(2)
+fc_level2 <- -log2(2)
+N <- 20
+
+DEG_D7 <- DEG_D7 %>%
+  mutate(
+    regulation = case_when(
+      q_value_D7 < sig_level & logFC_D7 >= fc_level  ~ "up",
+      q_value_D7 < sig_level & logFC_D7 <= fc_level2 ~ "down",
+      TRUE ~ "other"
+    ),
+    significant = regulation != "other",
+    log10_q_value = -log10(
+      pmax(q_value_D7, .Machine$double.xmin)
+    )
+  )
+```
+
+####volcano plot
+
+```{r}
+#lable top sig genes (top 20)
+
+top_genes_D7 <- DEG_D7 %>%
+  filter(significant) %>%
+  arrange(q_value_D7, desc(abs(logFC_D7))) %>%
+  slice_head(n = N)
+
+volcano_D7_top <- ggplot(
+  DEG_D7,
+  aes(x = logFC_D7, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    ),
+    labels = c(
+      up    = "Higher in GERALT",
+      down  = "Higher in OPTi-OX",
+      other = "Not significant"
+    )
+  ) +
+  geom_text_repel(
+    data = top_genes_D7,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT day 7 versus OPTi-OX day 7",
+    subtitle = paste0(
+      "Top ", N, " DEGs; adjusted p-value < ", sig_level,
+      " and |log2FC| ≥ ", fc_level
+    ),
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_D7_top
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_D7_top_DEGs.pdf"),
+  volcano_D7_top,
+  width = 9,
+  height = 7
+)
+
+```
+
+###test DEG D7 in signatures
+#plot only NOVO signature one by one
+
+```{r}
+gs_gene_table_NOVO <- stack(gs_NOVO) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = as.character(ind)
+  ) %>%
+  distinct()
+
+DEG_D7_NOVO <- DEG_D7 %>%
+  inner_join(
+    gs_gene_table_NOVO,
+    by = "geneID"
+  ) %>%
+  arrange(
+    signature,
+    q_value_D7,
+    desc(abs(logFC_D7))
+  )
+
+DEG_D7_NOVO
+
+###select ony NOVO genes (both tresholds)
+
+significant_NOVO_D7 <- DEG_D7_NOVO %>%
+  filter(significant)
+
+significant_NOVO_D7
+
+####see which they are
+NOVO_D7_summary <- DEG_D7_NOVO %>%
+  group_by(signature) %>%
+  summarise(
+    genes_in_DEG_table = n_distinct(geneID),
+    significant_genes = n_distinct(geneID[significant]),
+    higher_in_GERALT = n_distinct(
+      geneID[regulation == "up"]
+    ),
+    higher_in_OPTIOX = n_distinct(
+      geneID[regulation == "down"]
+    ),
+    .groups = "drop"
+  )
+
+NOVO_D7_summary
+
+write.csv(
+  DEG_D7_NOVO,
+  paste0(fname_prefix_csv, "_D7_NOVO_all_genes.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  significant_NOVO_D7,
+  paste0(fname_prefix_csv, "_D7_NOVO_significant_genes.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  NOVO_D7_summary,
+  paste0(fname_prefix_csv, "_D7_NOVO_signature_summary.csv"),
+  row.names = FALSE
+)
+
+
+####do the volcano plots
+
+volcano_D7_NOVO_list <- list()
+
+for (signature_name in names(gs_NOVO)) {
+
+  signature_results <- DEG_D7_NOVO %>%
+    filter(signature == signature_name)
+
+  genes_to_highlight <- signature_results %>%
+    filter(significant)
+
+  volcano_signature <- ggplot(
+    DEG_D7,
+    aes(x = logFC_D7, y = log10_q_value)
+  ) +
+
+    # All genes shown only as background
+    geom_point(
+      colour = "grey80",
+      size = 1.3,
+      alpha = 0.55
+    ) +
+
+    # Significant genes belonging to this NOVO signature
+    geom_point(
+      data = genes_to_highlight,
+      aes(fill = regulation),
+      shape = 21,
+      size = 3,
+      stroke = 0.7,
+      colour = "black"
+    ) +
+
+    scale_fill_manual(
+      values = c(
+      up    = "#CC79A7",
+      down  = "#009E73"
+      ),
+      labels = c(
+        up   = "Higher in GERALT",
+        down = "Higher in OPTi-OX"
+      ),
+      name = NULL,
+      drop = FALSE
+    ) +
+
+    geom_text_repel(
+      data = genes_to_highlight,
+      aes(label = geneID),
+      size = 3,
+      box.padding = 0.3,
+      point.padding = 0.2,
+      segment.color = "grey50",
+      segment.linewidth = 0.2,
+      max.overlaps = Inf
+    ) +
+
+    geom_hline(
+      yintercept = -log10(sig_level),
+      linetype = "dotted"
+    ) +
+
+    geom_vline(
+      xintercept = c(fc_level2, fc_level),
+      linetype = "dotted"
+    ) +
+
+    labs(
+      title = "GERALT day 7 versus OPTi-OX day 7",
+      subtitle = paste0(
+        signature_name,
+        ": ",
+        nrow(genes_to_highlight),
+        " significant genes"
+      ),
+      x = "Average log2 fold change",
+      y = expression(-log[10]("adjusted p-value"))
+    ) +
+
+    theme_classic(base_size = 12) +
+
+    theme(
+      legend.position = "top",
+      plot.title = element_text(hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5)
+    )
+
+  # Store each plot in a named list
+  volcano_D7_NOVO_list[[signature_name]] <- volcano_signature
+
+  # Display it in the R Markdown output
+  print(volcano_signature)
+
+  # Make signature name safe for filenames
+  safe_signature_name <- gsub(
+    "[^A-Za-z0-9_-]+",
+    "_",
+    signature_name
+  )
+
+  ggsave(
+    filename = paste0(
+      fname_prefix_dotplot,
+      "_D7_NOVO_",
+      safe_signature_name,
+      ".pdf"
+    ),
+    plot = volcano_signature,
+    width = 8,
+    height = 6
+  )
+}
+```
+####build DEG_D7_gs
+
+```{r}
+
+gs_gene_table <- stack(gs) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = as.character(ind)
+  ) %>%
+  distinct()
+
+DEG_D7_gs <- DEG_D7 %>%
+  left_join(
+    gs_gene_table %>%
+      group_by(geneID) %>%
+      summarise(
+        signatures = paste(sort(unique(signature)), collapse = "; "),
+        .groups = "drop"
+      ),
+    by = "geneID"
+  ) %>%
+  mutate(
+    in_gene_list = !is.na(signatures)
+  )
+
+significant_gs_D7 <- DEG_D7_gs %>%
+  filter(significant, in_gene_list) %>%
+  arrange(q_value_D7, desc(abs(logFC_D7)))
+
+significant_gs_D7
+```
+
+####volcano with gene signatures
+```{r}
+volcano_D7_gs <- ggplot(
+  DEG_D7_gs,
+  aes(x = logFC_D7, y = log10_q_value)
+) +
+  geom_point(
+    aes(colour = regulation),
+    size = 1.5,
+    alpha = 0.6
+  ) +
+  scale_colour_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73",
+      other = "grey75"
+    )
+  ) +
+
+  # Highlight significant genes belonging to gs
+  geom_point(
+    data = significant_gs_D7,
+    shape = 21,
+    size = 2.6,
+    stroke = 0.7,
+    colour = "black",
+    aes(fill = regulation)
+  ) +
+  scale_fill_manual(
+    values = c(
+      up    = "#CC79A7",
+      down  = "#009E73"
+    ),
+    guide = "none"
+  ) +
+
+  geom_text_repel(
+    data = significant_gs_D7,
+    aes(label = geneID),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf
+  ) +
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+  labs(
+    title = "GERALT day 7 versus OPTi-OX day 7",
+    subtitle = "Labels indicate significant genes contained in the gene signatures",
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value")),
+    colour = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_D7_gs
+```
+
+####volcano D7 coloured by fiber-type NOVO signature
+
+
+```{r}
+fiber_type_categories <- c(
+  "slow_twitch_myofiber_NOVO",
+  "fast_twitch_myofiber_NOVO",
+  "skeletal_muscle_fiber_type_independent_NOVO",
+  "genes_not_in_mature_skeletal_muscle_NOVO"
+)
+
+fiber_type_gene_table <- stack(gs_NOVO[fiber_type_categories]) %>%
+  transmute(
+    geneID = as.character(values),
+    signature = factor(as.character(ind), levels = fiber_type_categories)
+  ) %>%
+  distinct()
+
+DEG_D7_fiber_type <- DEG_D7 %>%
+  inner_join(fiber_type_gene_table, by = "geneID")
+
+# Labels only for genes that clear the D7 significance cutoffs, to keep the
+# plot readable -- change to DEG_D7_fiber_type if you want every panel gene
+# labelled regardless of significance
+labelled_fiber_type_D7 <- DEG_D7_fiber_type %>%
+  filter(significant)
+
+fiber_type_colours <- c(
+  slow_twitch_myofiber_NOVO                    = "#0072B2",  # blue
+  fast_twitch_myofiber_NOVO                    = "#D55E00",  # vermillion
+  skeletal_muscle_fiber_type_independent_NOVO  = "#009E73",  # bluish green
+  genes_not_in_mature_skeletal_muscle_NOVO     = "#CC79A7"   # reddish purple
+)
+
+fiber_type_labels <- c(
+  slow_twitch_myofiber_NOVO                    = "Slow twitch",
+  fast_twitch_myofiber_NOVO                    = "Fast twitch",
+  skeletal_muscle_fiber_type_independent_NOVO  = "Skeletal muscle (fiber-type independent)",
+  genes_not_in_mature_skeletal_muscle_NOVO     = "Not in mature skeletal muscle"
+)
+
+volcano_D7_fiber_type <- ggplot(
+  DEG_D7,
+  aes(x = logFC_D7, y = log10_q_value)
+) +
+
+  # All genes as background
+  geom_point(
+    colour = "grey85",
+    size = 1.3,
+    alpha = 0.5
+  ) +
+
+  # Fig 2A fiber-type panel genes, coloured by signature
+  geom_point(
+    data = DEG_D7_fiber_type,
+    aes(colour = signature),
+    size = 2.6,
+    alpha = 0.9
+  ) +
+
+  scale_colour_manual(
+    values = fiber_type_colours,
+    labels = fiber_type_labels,
+    name = "Fig 2A fiber-type program"
+  ) +
+
+  geom_text_repel(
+    data = labelled_fiber_type_D7,
+    aes(label = geneID, colour = signature),
+    size = 3,
+    box.padding = 0.3,
+    point.padding = 0.2,
+    segment.color = "grey50",
+    segment.linewidth = 0.2,
+    max.overlaps = Inf,
+    show.legend = FALSE
+  ) +
+
+  geom_hline(
+    yintercept = -log10(sig_level),
+    linetype = "dotted"
+  ) +
+  geom_vline(
+    xintercept = c(fc_level2, fc_level),
+    linetype = "dotted"
+  ) +
+
+  labs(
+    title = "GERALT day 7 versus OPTi-OX day 7",
+    subtitle = "Fig 2A fiber-type signatures (bioRxiv 2026.01.16.698404) highlighted",
+    x = "Average log2 fold change",
+    y = expression(-log[10]("adjusted p-value"))
+  ) +
+
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+volcano_D7_fiber_type
+
+ggsave(
+  paste0(fname_prefix_dotplot, "_D7_volcano_fiber_type_NOVO.pdf"),
+  volcano_D7_fiber_type,
+  width = 10,
+  height = 7
+)
+```
+
+###check expression
+
+```{r}
+p <- plot_cells(
+    cds_ger_opti,
+    genes = c("COX7A1","MYH7","MYH3","TNNT1","TNNI1","MYL6B","TPM2"),
+    label_cell_groups = FALSE,
+    show_trajectory_graph = FALSE
+  ) +
+    labs(
+      x = "UMAP 1",
+      y = "UMAP 2",
+      title = "DEG OPTIOX vs GERALT D7 based on NOVO signature genes"
+    ) +
+    scale_color_viridis(option = "E", discrete = FALSE)
+  
+  print(p)
+```
+
