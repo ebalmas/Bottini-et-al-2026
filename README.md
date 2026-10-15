@@ -31,6 +31,6 @@ Bulk RNA-sequencing comparison of GERALT circuit architectures and OPTi-OX durin
 
 Bulk RNA-sequencing analysis of TGFβ withdrawal and receptor inhibition in parental and DRACH-mutant NANOG-overexpressing WTC11 hiPSCs[E-MTAB-17410](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17410)
 
-Single-cell transcriptomic profiling of DRACH-mutant NANOG-overexpressing and parental WTC11 hiPSCs during prolonged TGFβ withdrawal [E-MTAB-17411](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17411)
+Single-cell transcriptomic profiling of NANOG-overexpressing and parental WTC11 hiPSCs during prolonged TGFβ withdrawal [E-MTAB-17411](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17411)
 
 pip seq-Single-Cell Transcriptomic Comparison of Primary, Wild-Type, and MYOD1-Overexpressing Cells During Skeletal Muscle Differentiation [E-MTAB-17414](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17414)
