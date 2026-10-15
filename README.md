@@ -29,7 +29,7 @@ Below is the link to the raw data; the codes are in a folder named with the bioS
 
 Bulk RNA-sequencing comparison of GERALT circuit architectures and OPTi-OX during MYOD1-driven skeletal muscle differentiation of WTC11 hiPSCs[E-MTAB-17408](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17408)
 
-Bulk RNA-sequencing analysis of TGFβ withdrawal and receptor inhibition in parental and DRACH-mutant NANOG-overexpressing WTC11 hiPSCs[E-MTAB-17410](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17410)
+Bulk RNA-sequencing analysis of TGFβ withdrawal and receptor inhibition in parental and NANOG-overexpressing WTC11 hiPSCs[E-MTAB-17410](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17410)
 
 Single-cell transcriptomic profiling of NANOG-overexpressing and parental WTC11 hiPSCs during prolonged TGFβ withdrawal [E-MTAB-17411](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-17411)
 
